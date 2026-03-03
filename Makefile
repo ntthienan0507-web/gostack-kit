@@ -1,49 +1,89 @@
-.PHONY: dev build sqlc lint test mock migrate-create
+.PHONY: dev build sqlc swagger lint test fmt vet clean help \
+	migrate migrate-status migrate-rollback migrate-create \
+	mock test-db db-tables db-shell
 
-BINARY := bin/server
-MIGRATIONS_DIR := db/migrations
+APP     := go-api-template
+BINARY  := bin/$(APP)
 
+# ============================================
 # Development
-dev:
-	go run ./cmd/server/main.go
+# ============================================
 
-# Build
-build:
-	go build -o $(BINARY) ./cmd/server/main.go
+dev: build ## Build and start the server
+	./$(BINARY) serve
 
-# SQLC code generation
-sqlc:
-	sqlc generate
+build: ## Build binary
+	go build -o $(BINARY) ./cmd/$(APP)
 
-# Linting
-lint:
-	golangci-lint run ./...
+run: ## Run without building (development)
+	go run ./cmd/$(APP) serve
 
-# Testing
-test:
+test: ## Run tests with coverage
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
 
-# Create migration file
-migrate-create:
-	@test -n "$(NAME)" || (echo "Usage: make migrate-create NAME=create_posts"; exit 1)
-	goose -dir $(MIGRATIONS_DIR) create $(NAME) sql
+lint: ## Run linter
+	golangci-lint run ./...
 
-# Mock generation (requires mockgen)
-mock:
+fmt: ## Format code
+	gofmt -w .
+
+vet: ## Run go vet
+	go vet ./...
+
+clean: ## Remove build artifacts
+	rm -rf bin/ coverage.out docs/
+
+# ============================================
+# Database
+# ============================================
+
+migrate: ## Run pending migrations
+	./$(BINARY) migrate up
+
+migrate-status: ## Show migration status
+	./$(BINARY) migrate status
+
+migrate-rollback: ## Rollback last migration
+	./$(BINARY) migrate down
+
+migrate-create: ## Create migration (NAME=create_posts)
+	@test -n "$(NAME)" || (echo "Usage: make migrate-create NAME=create_posts"; exit 1)
+	./$(BINARY) migrate create $(NAME)
+
+test-db: ## Test database connection
+	./$(BINARY) db test
+
+db-tables: ## List all tables
+	./$(BINARY) db tables
+
+db-shell: ## Open psql shell
+	./$(BINARY) db shell
+
+# ============================================
+# Code Generation
+# ============================================
+
+sqlc: ## Generate SQLC code from queries
+	sqlc generate
+
+swagger: ## Generate Swagger docs from annotations
+	swag init -g cmd/$(APP)/main.go --output docs
+
+mock: ## Generate mocks (requires mockgen)
 	@mkdir -p internal/module/user/mock
 	mockgen -source=internal/module/user/repository.go \
 		-destination=internal/module/user/mock/repository_mock.go \
 		-package=mock
 
-# Format
-fmt:
-	gofmt -w .
+# ============================================
+# Help
+# ============================================
 
-# Vet
-vet:
-	go vet ./...
-
-# Clean
-clean:
-	rm -rf bin/ coverage.out
+help: ## Show available commands
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "CLI: $(APP) <command>"
+	@echo "  serve                        Start the API server"
+	@echo "  migrate up|status|down|create|up-to|down-to|version|fix"
+	@echo "  db      test|tables|columns|query|shell"

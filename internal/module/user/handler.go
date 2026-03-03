@@ -5,11 +5,11 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/chungnguyen/go-api-template/internal/response"
+	"github.com/ntthienan0507-web/go-api-template/internal/response"
 )
 
 // Handler is thin: parse request, call service, write response.
-// No business logic here — fixes DataCentral fat controllers.
+// No business logic, no ORM dependency.
 type Handler struct {
 	service *Service
 	logger  *zap.Logger
@@ -20,7 +20,20 @@ func NewHandler(service *Service, logger *zap.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-// List handles GET /users?page=1&page_size=20&q=search&role=admin
+// List godoc
+// @Summary      List users
+// @Description  Get paginated list of users with optional search and role filter
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        page       query  int     false  "Page number"    default(1)
+// @Param        page_size  query  int     false  "Page size"      default(20)
+// @Param        q          query  string  false  "Search term"
+// @Param        role       query  string  false  "Filter by role"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  response.ErrorBody
+// @Security     BearerAuth
+// @Router       /users [get]
 func (h *Handler) List(ctx *gin.Context) {
 	var pParams response.PaginationParams
 	if err := ctx.ShouldBindQuery(&pParams); err != nil {
@@ -53,7 +66,17 @@ func (h *Handler) List(ctx *gin.Context) {
 	response.Success(ctx, result)
 }
 
-// GetByID handles GET /users/:id
+// GetByID godoc
+// @Summary      Get user by ID
+// @Description  Get a single user by their UUID
+// @Tags         users
+// @Produce      json
+// @Param        id   path  string  true  "User ID (UUID)"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  response.ErrorBody
+// @Failure      404  {object}  response.ErrorBody
+// @Security     BearerAuth
+// @Router       /users/{id} [get]
 func (h *Handler) GetByID(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
@@ -70,15 +93,26 @@ func (h *Handler) GetByID(ctx *gin.Context) {
 	response.Success(ctx, user)
 }
 
-// Create handles POST /users
+// Create godoc
+// @Summary      Create user
+// @Description  Create a new user with hashed password
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        body  body  CreateRequest  true  "User data"
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  response.ErrorBody
+// @Failure      409   {object}  response.ErrorBody
+// @Security     BearerAuth
+// @Router       /users [post]
 func (h *Handler) Create(ctx *gin.Context) {
-	var params CreateParams
-	if err := ctx.ShouldBindJSON(&params); err != nil {
+	var req CreateRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(ctx, err.Error())
 		return
 	}
 
-	user, err := h.service.Create(ctx.Request.Context(), params)
+	user, err := h.service.Create(ctx.Request.Context(), req)
 	if err != nil {
 		h.logger.Error("create user", zap.Error(err))
 		response.DBError(ctx, err)
@@ -88,7 +122,19 @@ func (h *Handler) Create(ctx *gin.Context) {
 	response.Created(ctx, user)
 }
 
-// Update handles PUT /users/:id
+// Update godoc
+// @Summary      Update user
+// @Description  Update an existing user's details
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string         true  "User ID (UUID)"
+// @Param        body  body  UpdateRequest  true  "Fields to update"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  response.ErrorBody
+// @Failure      404   {object}  response.ErrorBody
+// @Security     BearerAuth
+// @Router       /users/{id} [put]
 func (h *Handler) Update(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
@@ -96,13 +142,13 @@ func (h *Handler) Update(ctx *gin.Context) {
 		return
 	}
 
-	var params UpdateParams
-	if err := ctx.ShouldBindJSON(&params); err != nil {
+	var req UpdateRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(ctx, err.Error())
 		return
 	}
 
-	user, err := h.service.Update(ctx.Request.Context(), id, params)
+	user, err := h.service.Update(ctx.Request.Context(), id, req)
 	if err != nil {
 		response.DBError(ctx, err)
 		return
@@ -111,7 +157,16 @@ func (h *Handler) Update(ctx *gin.Context) {
 	response.Success(ctx, user)
 }
 
-// Delete handles DELETE /users/:id
+// Delete godoc
+// @Summary      Delete user
+// @Description  Soft-delete a user by ID
+// @Tags         users
+// @Param        id  path  string  true  "User ID (UUID)"
+// @Success      204
+// @Failure      400  {object}  response.ErrorBody
+// @Failure      404  {object}  response.ErrorBody
+// @Security     BearerAuth
+// @Router       /users/{id} [delete]
 func (h *Handler) Delete(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {

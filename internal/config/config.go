@@ -15,6 +15,7 @@ type Config struct {
 	ServerMode string `mapstructure:"SERVER_MODE"`
 
 	// Database
+	DBDriver   string `mapstructure:"DB_DRIVER"` // "sqlc" | "gorm"
 	DBHost     string `mapstructure:"DB_HOST"`
 	DBPort     int    `mapstructure:"DB_PORT"`
 	DBUser     string `mapstructure:"DB_USER"`
@@ -60,6 +61,7 @@ func Load(path string) (*Config, error) {
 	// Defaults
 	v.SetDefault("SERVER_PORT", 8080)
 	v.SetDefault("SERVER_MODE", "debug")
+	v.SetDefault("DB_DRIVER", "sqlc")
 	v.SetDefault("DB_SSL_MODE", "disable")
 	v.SetDefault("DB_MAX_CONNS", 20)
 	v.SetDefault("DB_MIN_CONNS", 2)

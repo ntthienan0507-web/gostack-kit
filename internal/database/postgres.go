@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/chungnguyen/go-api-template/internal/config"
+	"github.com/ntthienan0507-web/go-api-template/internal/config"
 )
 
 // NewPool creates a pgxpool with config-driven pool settings.

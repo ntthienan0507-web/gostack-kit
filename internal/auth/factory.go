@@ -3,7 +3,7 @@ package auth
 import (
 	"fmt"
 
-	"github.com/chungnguyen/go-api-template/internal/config"
+	"github.com/ntthienan0507-web/go-api-template/internal/config"
 )
 
 // NewProvider selects the auth provider based on AUTH_PROVIDER config.

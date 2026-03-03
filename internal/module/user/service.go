@@ -5,15 +5,14 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
-	db "github.com/chungnguyen/go-api-template/db/sqlc"
-	"github.com/chungnguyen/go-api-template/internal/response"
+	"github.com/ntthienan0507-web/go-api-template/internal/response"
 )
 
-// Service holds business logic. No HTTP concerns.
+// Service holds business logic. No HTTP concerns, no ORM dependency.
+// Works with any Repository implementation (SQLC or GORM).
 type Service struct {
 	repo   Repository
 	logger *zap.Logger
@@ -29,21 +28,13 @@ func (s *Service) List(ctx context.Context, params ListParams) (*response.Pagina
 	limit := int32(params.PageSize)
 	offset := int32((params.Page - 1) * params.PageSize)
 
-	users, err := s.repo.List(ctx, db.ListUsersParams{
-		Search:     params.Search,
-		Role:       params.Role,
-		PageSize:   limit,
-		PageOffset: offset,
-	})
+	users, err := s.repo.List(ctx, params, limit, offset)
 	if err != nil {
 		s.logger.Error("list users failed", zap.Error(err))
 		return nil, err
 	}
 
-	count, err := s.repo.Count(ctx, db.CountUsersParams{
-		Search: params.Search,
-		Role:   params.Role,
-	})
+	count, err := s.repo.Count(ctx, params)
 	if err != nil {
 		s.logger.Error("count users failed", zap.Error(err))
 		return nil, err
@@ -51,7 +42,7 @@ func (s *Service) List(ctx context.Context, params ListParams) (*response.Pagina
 
 	items := make([]UserResponse, len(users))
 	for i, u := range users {
-		items[i] = toResponse(u)
+		items[i] = ToResponse(u)
 	}
 
 	pagination := response.NewPagination(count, response.PaginationParams{
@@ -68,67 +59,67 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*UserResponse, err
 	if err != nil {
 		return nil, err
 	}
-	r := toResponse(u)
+	r := ToResponse(u)
 	return &r, nil
 }
 
 // Create creates a new user with hashed password.
-func (s *Service) Create(ctx context.Context, params CreateParams) (*UserResponse, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(params.Password), bcrypt.DefaultCost)
+func (s *Service) Create(ctx context.Context, req CreateRequest) (*UserResponse, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
-	role := params.Role
+	role := req.Role
 	if role == "" {
 		role = "user"
 	}
 
-	u, err := s.repo.Create(ctx, db.CreateUserParams{
-		Username:     params.Username,
-		Email:        params.Email,
-		FullName:     params.FullName,
-		PasswordHash: pgtype.Text{String: string(hash), Valid: true},
+	u, err := s.repo.Create(ctx, CreateInput{
+		Username:     req.Username,
+		Email:        req.Email,
+		FullName:     req.FullName,
+		PasswordHash: string(hash),
 		Role:         role,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	r := toResponse(u)
+	r := ToResponse(u)
 	return &r, nil
 }
 
 // Update updates an existing user.
-func (s *Service) Update(ctx context.Context, id uuid.UUID, params UpdateParams) (*UserResponse, error) {
+func (s *Service) Update(ctx context.Context, id uuid.UUID, req UpdateRequest) (*UserResponse, error) {
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	updateParams := db.UpdateUserParams{
+	input := UpdateInput{
 		ID:       id,
 		FullName: existing.FullName,
 		Role:     existing.Role,
 		IsActive: existing.IsActive,
 	}
 
-	if params.FullName != nil {
-		updateParams.FullName = *params.FullName
+	if req.FullName != nil {
+		input.FullName = *req.FullName
 	}
-	if params.Role != nil {
-		updateParams.Role = *params.Role
+	if req.Role != nil {
+		input.Role = *req.Role
 	}
-	if params.IsActive != nil {
-		updateParams.IsActive = *params.IsActive
+	if req.IsActive != nil {
+		input.IsActive = *req.IsActive
 	}
 
-	u, err := s.repo.Update(ctx, updateParams)
+	u, err := s.repo.Update(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	r := toResponse(u)
+	r := ToResponse(u)
 	return &r, nil
 }
 
@@ -139,22 +130,3 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return s.repo.SoftDelete(ctx, id)
 }
-
-func toResponse(u *db.User) UserResponse {
-	resp := UserResponse{
-		ID:       u.ID,
-		Username: u.Username,
-		Email:    u.Email,
-		FullName: u.FullName,
-		Role:     u.Role,
-		IsActive: u.IsActive,
-	}
-	if u.CreatedAt.Valid {
-		resp.CreatedAt = u.CreatedAt.Time
-	}
-	if u.UpdatedAt.Valid {
-		resp.UpdatedAt = u.UpdatedAt.Time
-	}
-	return resp
-}
-

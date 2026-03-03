@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	db "github.com/chungnguyen/go-api-template/db/sqlc"
+	db "github.com/ntthienan0507-web/go-api-template/db/sqlc"
 )
 
 // Store wraps db.Queries and adds transaction support.
