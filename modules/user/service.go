@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
-
-	"github.com/ntthienan0507-web/go-api-template/pkg/response"
 )
 
 // Service holds business logic. No HTTP concerns, no ORM dependency.
@@ -24,7 +22,7 @@ func NewService(repo Repository, logger *zap.Logger) *Service {
 }
 
 // List returns a paginated list of users.
-func (s *Service) List(ctx context.Context, params ListParams) (*response.PaginatedResult, error) {
+func (s *Service) List(ctx context.Context, params ListParams) (*ListResult, error) {
 	limit := int32(params.PageSize)
 	offset := int32((params.Page - 1) * params.PageSize)
 
@@ -45,12 +43,7 @@ func (s *Service) List(ctx context.Context, params ListParams) (*response.Pagina
 		items[i] = ToResponse(u)
 	}
 
-	pagination := response.NewPagination(count, response.PaginationParams{
-		Page:     params.Page,
-		PageSize: params.PageSize,
-	})
-
-	return &response.PaginatedResult{Items: items, Pagination: pagination}, nil
+	return &ListResult{Items: items, Total: count}, nil
 }
 
 // GetByID returns a single user by ID.

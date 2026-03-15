@@ -63,6 +63,12 @@ type UserResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ListResult is returned by Service.List for the controller to format.
+type ListResult struct {
+	Items []UserResponse
+	Total int64
+}
+
 // ToResponse converts domain User to client-facing UserResponse.
 func ToResponse(u *User) UserResponse {
 	return UserResponse{
