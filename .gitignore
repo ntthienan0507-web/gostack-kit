@@ -35,3 +35,6 @@ log/
 
 # Temp
 tmp/
+go-api-template
+gostack-kit
+bin/
