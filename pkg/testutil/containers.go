@@ -17,8 +17,10 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
-	// goose postgres driver for running migrations
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -28,10 +30,9 @@ func migrationsDir() string {
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "db", "migrations")
 }
 
-// NewPostgresContainer starts a PostgreSQL 16 container, runs goose migrations,
-// and returns a *pgxpool.Pool connected to the container. The container is
-// terminated automatically via t.Cleanup.
-func NewPostgresContainer(t *testing.T) *pgxpool.Pool {
+// startPostgresContainer spins up a PostgreSQL 16 container and runs migrations.
+// Returns the connection string. Container is terminated via t.Cleanup.
+func startPostgresContainer(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -60,7 +61,6 @@ func NewPostgresContainer(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("failed to get postgres connection string: %v", err)
 	}
 
-	// Run goose migrations using database/sql (goose requires *sql.DB).
 	sqlDB, err := sql.Open("pgx", connStr)
 	if err != nil {
 		t.Fatalf("failed to open sql connection for migrations: %v", err)
@@ -74,16 +74,45 @@ func NewPostgresContainer(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("failed to run migrations: %v", err)
 	}
 
-	// Create pgxpool for the test.
-	pool, err := pgxpool.New(ctx, connStr)
+	return connStr
+}
+
+// NewPostgresContainer starts a PostgreSQL 16 container, runs goose migrations,
+// and returns a *pgxpool.Pool connected to the container. The container is
+// terminated automatically via t.Cleanup.
+func NewPostgresContainer(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	connStr := startPostgresContainer(t)
+
+	pool, err := pgxpool.New(context.Background(), connStr)
 	if err != nil {
 		t.Fatalf("failed to create pgxpool: %v", err)
 	}
-	t.Cleanup(func() {
-		pool.Close()
-	})
+	t.Cleanup(func() { pool.Close() })
 
 	return pool
+}
+
+// NewGormDB starts a PostgreSQL 16 container, runs goose migrations,
+// and returns a *gorm.DB connected to the container. The container is
+// terminated automatically via t.Cleanup.
+func NewGormDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	connStr := startPostgresContainer(t)
+
+	db, err := gorm.Open(postgres.Open(connStr), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("failed to open gorm connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			sqlDB.Close()
+		}
+	})
+
+	return db
 }
 
 // NewRedisContainer starts a Redis container and returns a *redis.Client
@@ -119,9 +148,7 @@ func NewRedisContainer(t *testing.T) *redis.Client {
 	}
 
 	client := redis.NewClient(opts)
-	t.Cleanup(func() {
-		client.Close()
-	})
+	t.Cleanup(func() { client.Close() })
 
 	return client
 }

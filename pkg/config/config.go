@@ -105,6 +105,139 @@ type Config struct {
 	OTELSampler     float64 `mapstructure:"OTEL_SAMPLER"`
 }
 
+// Validate checks that config values are within expected ranges and required
+// fields are present. Called at startup to fail fast on misconfiguration.
+func (c *Config) Validate() error {
+	var errs []string
+	fail := func(msg string) { errs = append(errs, msg) }
+
+	// Server
+	if c.ServerPort < 1 || c.ServerPort > 65535 {
+		fail(fmt.Sprintf("SERVER_PORT=%d: must be 1–65535", c.ServerPort))
+	}
+	switch c.ServerMode {
+	case "debug", "release", "test":
+	default:
+		fail(fmt.Sprintf("SERVER_MODE=%q: must be debug, release, or test", c.ServerMode))
+	}
+
+	// Database
+	switch c.DBDriver {
+	case "sqlc", "gorm", "mongo":
+	default:
+		fail(fmt.Sprintf("DB_DRIVER=%q: must be sqlc, gorm, or mongo", c.DBDriver))
+	}
+	if c.DBDriver != "mongo" {
+		if c.DBHost == "" {
+			fail("DB_HOST is required")
+		}
+		if c.DBPort < 1 || c.DBPort > 65535 {
+			fail(fmt.Sprintf("DB_PORT=%d: must be 1–65535", c.DBPort))
+		}
+		if c.DBName == "" {
+			fail("DB_NAME is required")
+		}
+		if c.DBMaxConns < 1 {
+			fail(fmt.Sprintf("DB_MAX_CONNS=%d: must be >= 1", c.DBMaxConns))
+		}
+		if c.DBMinConns < 0 || c.DBMinConns > c.DBMaxConns {
+			fail(fmt.Sprintf("DB_MIN_CONNS=%d: must be 0–DB_MAX_CONNS(%d)", c.DBMinConns, c.DBMaxConns))
+		}
+	}
+
+	// Auth
+	switch c.AuthProvider {
+	case "jwt":
+		switch c.JWTAlgorithm {
+		case "HS256", "":
+			if c.JWTSecret == "" {
+				fail("JWT_SECRET is required when AUTH_PROVIDER=jwt and JWT_ALGORITHM=HS256")
+			} else if len(c.JWTSecret) < 32 {
+				fail(fmt.Sprintf("JWT_SECRET length=%d: must be >= 32 characters", len(c.JWTSecret)))
+			}
+		case "RS256":
+			if c.JWTPrivateKeyFile == "" {
+				fail("JWT_PRIVATE_KEY_FILE is required for RS256")
+			}
+			if c.JWTPublicKeyFile == "" {
+				fail("JWT_PUBLIC_KEY_FILE is required for RS256")
+			}
+		default:
+			fail(fmt.Sprintf("JWT_ALGORITHM=%q: must be HS256 or RS256", c.JWTAlgorithm))
+		}
+		if c.JWTExpiry <= 0 {
+			fail(fmt.Sprintf("JWT_EXPIRY=%s: must be positive", c.JWTExpiry))
+		}
+	case "keycloak":
+		if c.KeycloakHost == "" {
+			fail("KEYCLOAK_HOST is required when AUTH_PROVIDER=keycloak")
+		}
+		if c.KeycloakRealm == "" {
+			fail("KEYCLOAK_REALM is required when AUTH_PROVIDER=keycloak")
+		}
+		if c.KeycloakClientID == "" {
+			fail("KEYCLOAK_CLIENT_ID is required when AUTH_PROVIDER=keycloak")
+		}
+	default:
+		fail(fmt.Sprintf("AUTH_PROVIDER=%q: must be jwt or keycloak", c.AuthProvider))
+	}
+
+	// Redis
+	if c.RedisPoolSize < 1 {
+		fail(fmt.Sprintf("REDIS_POOL_SIZE=%d: must be >= 1", c.RedisPoolSize))
+	}
+	if c.RedisMinIdle < 0 || c.RedisMinIdle > c.RedisPoolSize {
+		fail(fmt.Sprintf("REDIS_MIN_IDLE=%d: must be 0–REDIS_POOL_SIZE(%d)", c.RedisMinIdle, c.RedisPoolSize))
+	}
+
+	// Encryption
+	if c.EncryptionKey != "" && len(c.EncryptionKey) < 32 {
+		fail(fmt.Sprintf("ENCRYPTION_KEY length=%d: must be >= 32 characters when set", len(c.EncryptionKey)))
+	}
+
+	// Workers
+	if c.WorkerCount < 1 {
+		fail(fmt.Sprintf("WORKER_COUNT=%d: must be >= 1", c.WorkerCount))
+	}
+	if c.WorkerQueueSize < 1 {
+		fail(fmt.Sprintf("WORKER_QUEUE_SIZE=%d: must be >= 1", c.WorkerQueueSize))
+	}
+
+	// Logging
+	switch c.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		fail(fmt.Sprintf("LOG_LEVEL=%q: must be debug, info, warn, or error", c.LogLevel))
+	}
+	switch c.LogFormat {
+	case "console", "json":
+	default:
+		fail(fmt.Sprintf("LOG_FORMAT=%q: must be console or json", c.LogFormat))
+	}
+
+	// OpenTelemetry
+	if c.OTELSampler < 0 || c.OTELSampler > 1 {
+		fail(fmt.Sprintf("OTEL_SAMPLER=%.2f: must be 0.0–1.0", c.OTELSampler))
+	}
+
+	// Kafka SASL
+	if c.KafkaSASLEnable {
+		switch c.KafkaSASLMechanism {
+		case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512":
+		default:
+			fail(fmt.Sprintf("KAFKA_SASL_MECHANISM=%q: must be PLAIN, SCRAM-SHA-256, or SCRAM-SHA-512", c.KafkaSASLMechanism))
+		}
+		if c.KafkaSASLUsername == "" {
+			fail("KAFKA_SASL_USERNAME is required when KAFKA_SASL_ENABLE=true")
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("config validation failed:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
+}
+
 // DSN returns the PostgreSQL connection string.
 func (c *Config) DSN() string {
 	return fmt.Sprintf(

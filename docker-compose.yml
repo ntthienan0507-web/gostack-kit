@@ -3,15 +3,17 @@
 #
 # Quick start:
 #   cp .env.example .env        # adjust values as needed
-#   docker compose up -d        # starts postgres + app + observability stack
+#   docker compose up -d        # starts postgres + redis + app (core only)
 #
-# Observability UIs (available after `docker compose up`):
+# Profiles (opt-in):
+#   docker compose --profile observability up -d   # + jaeger, prometheus, grafana
+#   docker compose --profile sonar up -d           # + sonarqube
+#   docker compose --profile all up -d             # everything
+#
+# Observability UIs (requires --profile observability):
 #   Jaeger     — http://localhost:16686  (distributed traces)
 #   Prometheus — http://localhost:9090   (metrics)
 #   Grafana    — http://localhost:3000   (dashboards, anonymous login)
-#
-# To include optional services (mongo, keycloak), uncomment the relevant
-# blocks below and in the `app.depends_on` / `app.environment` sections.
 ###############################################################################
 
 services:
@@ -33,6 +35,20 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres -d myapp"]
       interval: 5s
       timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis — cache, sessions, distributed rate limiting
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
   # ---------------------------------------------------------------------------
@@ -115,20 +131,18 @@ services:
     env_file:
       - .env
     environment:
-      # Override hosts so the app reaches sibling containers by service name.
       DB_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
       # MONGO_URI: mongodb://mongo:27017   # uncomment with mongo service
       # KEYCLOAK_HOST: http://keycloak:8080 # uncomment with keycloak service
-
-      # OpenTelemetry — export traces to Jaeger via OTLP HTTP
       OTEL_ENABLED: "true"
       OTEL_ENDPOINT: jaeger:4318
       OTEL_SERVICE_NAME: go-api-template
     depends_on:
       postgres:
         condition: service_healthy
-      jaeger:
-        condition: service_started
+      redis:
+        condition: service_healthy
       # mongo:
       #   condition: service_started
       # keycloak:
@@ -136,6 +150,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # Jaeger — distributed tracing backend (all-in-one)
+  #   Profile: observability
   #   UI:        http://localhost:16686
   #   OTLP gRPC: localhost:4317
   #   OTLP HTTP: localhost:4318
@@ -143,6 +158,7 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.56
     restart: unless-stopped
+    profiles: ["observability", "all"]
     ports:
       - "16686:16686"   # Jaeger UI
       - "4317:4317"     # OTLP gRPC receiver
@@ -152,11 +168,13 @@ services:
 
   # ---------------------------------------------------------------------------
   # Prometheus — metrics collection & querying
+  #   Profile: observability
   #   UI: http://localhost:9090
   # ---------------------------------------------------------------------------
   prometheus:
     image: prom/prometheus:v2.51.0
     restart: unless-stopped
+    profiles: ["observability", "all"]
     ports:
       - "9090:9090"
     volumes:
@@ -166,15 +184,16 @@ services:
 
   # ---------------------------------------------------------------------------
   # Grafana — dashboards & visualisation
+  #   Profile: observability
   #   UI: http://localhost:3000  (anonymous access enabled for local dev)
   # ---------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:10.4.0
     restart: unless-stopped
+    profiles: ["observability", "all"]
     ports:
       - "3000:3000"
     environment:
-      # Allow anonymous access so local dev doesn't require login
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:
@@ -184,21 +203,17 @@ services:
 
   # ---------------------------------------------------------------------------
   # SonarQube — code quality & security analysis
+  #   Profile: sonar
   #   UI:  http://localhost:9000  (admin/admin → change on first login)
-  #   API: http://localhost:9000/api
-  #
-  # Setup:
-  #   1. docker compose up -d sonarqube
-  #   2. ./scripts/setup-sonar.sh    ← auto-creates project + token
-  #   3. make sonar                  ← run analysis
   # ---------------------------------------------------------------------------
   sonarqube:
     image: sonarqube:10-community
     restart: unless-stopped
+    profiles: ["sonar", "all"]
     ports:
       - "9000:9000"
     environment:
-      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"  # single-node dev
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
     volumes:
       - sonar_data:/opt/sonarqube/data
       - sonar_logs:/opt/sonarqube/logs

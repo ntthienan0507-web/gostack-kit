@@ -95,6 +95,21 @@ security:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
 
+swagger:
+  stage: check
+  script:
+    - go install github.com/swaggo/swag/cmd/swag@latest
+    - swag init -g cmd/go-api-template/main.go --output docs
+    - |
+      if [ -n "$(git diff --name-only docs/)" ]; then
+        echo "Swagger docs are stale. Run 'make swagger' and commit."
+        git diff docs/
+        exit 1
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
 ###############################################################################
 # Stage 2: TEST — unit tests + coverage
 ###############################################################################

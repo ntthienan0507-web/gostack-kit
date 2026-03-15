@@ -14,6 +14,7 @@ import (
 
 	db "github.com/ntthienan0507-web/gostack-kit/db/sqlc"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/broker"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/async"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
@@ -107,6 +108,27 @@ func (a *App) registerModules(api *gin.RouterGroup) {
 }
 
 func (a *App) Run(ctx context.Context) error {
+	// Start outbox relay if Kafka producer + GORM are available
+	if a.Services != nil && a.Services.KafkaProducer != nil && a.gormDB != nil {
+		relay := broker.NewRelay(a.gormDB, a.Services.KafkaProducer, a.logger, broker.RelayConfig{})
+		go func() {
+			if err := relay.Run(ctx); err != nil {
+				a.logger.Error("outbox relay error", zap.Error(err))
+			}
+		}()
+		a.logger.Info("outbox relay started")
+	}
+
+	// Start Kafka consumer if configured
+	if a.Services != nil && a.Services.KafkaConsumer != nil {
+		go func() {
+			if err := a.Services.KafkaConsumer.Start(); err != nil {
+				a.logger.Error("kafka consumer error", zap.Error(err))
+			}
+		}()
+		a.logger.Info("kafka consumer started")
+	}
+
 	a.server = &http.Server{Addr: fmt.Sprintf(":%d", a.cfg.ServerPort), Handler: a.router, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() {
@@ -117,6 +139,7 @@ func (a *App) Run(ctx context.Context) error {
 	select {
 	case err := <-errCh: return err
 	case <-ctx.Done():
+		a.logger.Info("shutdown signal received")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return a.server.Shutdown(shutdownCtx)
@@ -153,10 +176,25 @@ func (g *gormPinger) Ping(ctx context.Context) error { s, err := g.db.DB(); if e
 
 func (a *App) Shutdown() {
 	a.logger.Info("shutting down")
+
+	// 1. Stop Kafka consumer first (drains in-flight messages, flushes batchers)
+	if a.Services != nil && a.Services.KafkaConsumer != nil {
+		a.logger.Info("draining kafka consumer...")
+		if err := a.Services.KafkaConsumer.Close(); err != nil {
+			a.logger.Error("close kafka consumer", zap.Error(err))
+		}
+	}
+
+	// 2. Stop worker pool (drain background tasks)
 	if a.Workers != nil { a.Workers.Shutdown() }
+
+	// 3. Stop remaining services (producer, etc.)
 	if a.Services != nil { a.Services.shutdown(a.logger) }
+
+	// 4. Close data stores
 	if a.Redis != nil { a.Redis.Close() }
 	if a.pool != nil { a.pool.Close() }
 	if a.gormDB != nil { if s, err := a.gormDB.DB(); err == nil { s.Close() } }
+
 	_ = a.logger.Sync()
 }

@@ -59,6 +59,9 @@ func mustLoadConfig() *config.Config {
 	if err != nil {
 		fatal("load config: %v", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		fatal("%v", err)
+	}
 	return cfg
 }
 
