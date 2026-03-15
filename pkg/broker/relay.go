@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/retry"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/retry"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )

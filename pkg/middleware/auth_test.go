@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
 )
 
 func init() {

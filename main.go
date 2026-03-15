@@ -1,10 +1,10 @@
 package main
 
-import "github.com/ntthienan0507-web/go-api-template/cmd"
+import "github.com/ntthienan0507-web/gostack-kit/cmd"
 
-// @title           go-api-template API
+// @title           gostack-kit API
 // @version         1.0
-// @description     API server for go-api-template
+// @description     API server for gostack-kit
 // @BasePath        /api/v1
 // @securityDefinitions.apikey BearerAuth
 // @in header

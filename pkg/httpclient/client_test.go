@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/retry"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/retry"
 )
 
 func testClient(url string, opts ...func(*Config)) *Client {

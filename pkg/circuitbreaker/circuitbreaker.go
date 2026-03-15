@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 	"github.com/sony/gobreaker/v2"
 	"go.uber.org/zap"
 )

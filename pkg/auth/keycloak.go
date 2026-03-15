@@ -6,7 +6,7 @@ import (
 
 	"github.com/Nerzal/gocloak/v13"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 type keycloakProvider struct {

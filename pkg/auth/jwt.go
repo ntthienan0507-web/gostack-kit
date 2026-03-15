@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 type jwtProvider struct {

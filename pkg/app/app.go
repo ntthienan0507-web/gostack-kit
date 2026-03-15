@@ -12,18 +12,18 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	db "github.com/ntthienan0507-web/go-api-template/db/sqlc"
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
-	"github.com/ntthienan0507-web/go-api-template/pkg/async"
-	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
-	"github.com/ntthienan0507-web/go-api-template/pkg/database"
-	"github.com/ntthienan0507-web/go-api-template/pkg/middleware"
-	usermodule "github.com/ntthienan0507-web/go-api-template/modules/user"
+	db "github.com/ntthienan0507-web/gostack-kit/db/sqlc"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/async"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/database"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/middleware"
+	usermodule "github.com/ntthienan0507-web/gostack-kit/modules/user"
 
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-	_ "github.com/ntthienan0507-web/go-api-template/docs"
+	_ "github.com/ntthienan0507-web/gostack-kit/docs"
 )
 
 type App struct {
@@ -95,15 +95,15 @@ func (a *App) setupRouter() {
 }
 
 func (a *App) registerModules(api *gin.RouterGroup) {
-	// User module — uses original Handler/RegisterRoutes API (to be migrated to Controller/NewRoutes)
+	// User module
 	var userRepo usermodule.Repository
 	switch a.cfg.DBDriver {
 	case "gorm":  userRepo = usermodule.NewGORMRepository(a.gormDB)
 	default:      userRepo = usermodule.NewSQLCRepository(a.queries)
 	}
 	userSvc := usermodule.NewService(userRepo, a.logger)
-	userHandler := usermodule.NewHandler(userSvc, a.logger)
-	usermodule.RegisterRoutes(api, userHandler, a.authProvider)
+	userCtrl := usermodule.NewController(userSvc, a.logger)
+	usermodule.NewRoutes(userCtrl).Register(api, a.authProvider)
 }
 
 func (a *App) Run(ctx context.Context) error {

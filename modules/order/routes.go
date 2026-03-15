@@ -3,8 +3,8 @@ package order
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
-	"github.com/ntthienan0507-web/go-api-template/pkg/middleware"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/middleware"
 )
 
 // Routes wraps the controller for route registration.

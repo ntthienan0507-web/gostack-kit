@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/response"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 )
 
 func init() {

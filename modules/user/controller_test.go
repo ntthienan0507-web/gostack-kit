@@ -17,14 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/response"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 )
 
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-func setupRouter(ctrl *Handler) *gin.Engine {
+func setupRouter(ctrl *Controller) *gin.Engine {
 	r := gin.New()
 	g := r.Group("/api/v1")
 	{
@@ -37,11 +37,11 @@ func setupRouter(ctrl *Handler) *gin.Engine {
 	return r
 }
 
-func newTestController() (*Handler, *MockRepository) {
+func newTestController() (*Controller, *MockRepository) {
 	repo := new(MockRepository)
 	logger := zap.NewNop()
 	svc := NewService(repo, logger)
-	ctrl := NewHandler(svc, logger)
+	ctrl := NewController(svc, logger)
 	return ctrl, repo
 }
 

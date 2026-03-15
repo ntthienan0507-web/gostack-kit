@@ -6,14 +6,14 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/broker"
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
-	"github.com/ntthienan0507-web/go-api-template/pkg/crypto"
-	"github.com/ntthienan0507-web/go-api-template/pkg/external/elasticsearch"
-	"github.com/ntthienan0507-web/go-api-template/pkg/external/firebase"
-	"github.com/ntthienan0507-web/go-api-template/pkg/external/icewarp"
-	"github.com/ntthienan0507-web/go-api-template/pkg/external/sendgrid"
-	"github.com/ntthienan0507-web/go-api-template/pkg/external/stripe"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/broker"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/crypto"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/external/elasticsearch"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/external/firebase"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/external/icewarp"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/external/sendgrid"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/external/stripe"
 )
 
 // Services holds all external service clients.

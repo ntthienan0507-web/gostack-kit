@@ -11,8 +11,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
-	"github.com/ntthienan0507-web/go-api-template/pkg/response"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 )
 
 func newObservedLogger() (*zap.Logger, *observer.ObservedLogs) {

@@ -170,7 +170,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("LOG_FORMAT", "console")
 	v.SetDefault("OTEL_ENABLED", false)
-	v.SetDefault("OTEL_SERVICE_NAME", "go-api-template")
+	v.SetDefault("OTEL_SERVICE_NAME", "gostack-kit")
 	v.SetDefault("OTEL_ENDPOINT", "localhost:4318")
 	v.SetDefault("OTEL_SAMPLER", 1.0)
 

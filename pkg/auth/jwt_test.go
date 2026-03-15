@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 func newTestJWTProvider() Provider {

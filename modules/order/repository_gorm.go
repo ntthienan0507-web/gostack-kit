@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 )
 
 // --- GORM models (internal to the repository layer) ---

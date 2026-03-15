@@ -5,8 +5,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/cron"
-	"github.com/ntthienan0507-web/go-api-template/pkg/logger"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/cron"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/logger"
 )
 
 func runCron() {

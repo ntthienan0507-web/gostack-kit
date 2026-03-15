@@ -9,7 +9,7 @@ import (
 
 func runMigrate() {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: go-api-template migrate <command>")
+		fmt.Println("Usage: gostack-kit migrate <command>")
 		fmt.Println()
 		fmt.Println("Commands:")
 		fmt.Println("  up              Run all pending migrations")
@@ -42,20 +42,20 @@ func runMigrate() {
 
 	case "create":
 		if len(os.Args) < 4 {
-			fatal("Usage: go-api-template migrate create <name>")
+			fatal("Usage: gostack-kit migrate create <name>")
 		}
 		must(goose.Create(db, migrationsDir, os.Args[3], "sql"))
 		fmt.Printf("Created migration: %s\n", os.Args[3])
 
 	case "up-to":
 		if len(os.Args) < 4 {
-			fatal("Usage: go-api-template migrate up-to <version>")
+			fatal("Usage: gostack-kit migrate up-to <version>")
 		}
 		must(goose.UpTo(db, migrationsDir, parseInt64(os.Args[3])))
 
 	case "down-to":
 		if len(os.Args) < 4 {
-			fatal("Usage: go-api-template migrate down-to <version>")
+			fatal("Usage: gostack-kit migrate down-to <version>")
 		}
 		must(goose.DownTo(db, migrationsDir, parseInt64(os.Args[3])))
 

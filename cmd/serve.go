@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/app"
-	"github.com/ntthienan0507-web/go-api-template/pkg/database"
-	"github.com/ntthienan0507-web/go-api-template/pkg/logger"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/app"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/database"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/logger"
 )
 
 func runServe() {

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/ntthienan0507-web/go-api-template/pkg/circuitbreaker"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/circuitbreaker"
 	"go.uber.org/zap"
 )
 

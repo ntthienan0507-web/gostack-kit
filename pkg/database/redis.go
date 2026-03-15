@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 // NewRedis creates a Redis client with config-driven settings.

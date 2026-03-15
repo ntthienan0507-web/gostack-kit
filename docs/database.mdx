@@ -203,7 +203,7 @@ Locks the row at the database level — subsequent requests must wait.
 ### Types
 
 ```go
-import "github.com/ntthienan0507-web/go-api-template/pkg/database"
+import "github.com/ntthienan0507-web/gostack-kit/pkg/database"
 
 // FOR UPDATE — exclusive lock, blocks both reads and writes
 tx.Clauses(database.ForUpdate()).Where("id = ?", id).First(&product)
@@ -259,7 +259,7 @@ err := database.WithTransaction(ctx, db, logger, func(tx *gorm.DB) error {
 Redis-based lock for multi-instance coordination.
 
 ```go
-import "github.com/ntthienan0507-web/go-api-template/pkg/distlock"
+import "github.com/ntthienan0507-web/gostack-kit/pkg/distlock"
 
 // Acquire lock
 lock, err := distlock.Acquire(ctx, redisClient, "cron:monthly-report", distlock.Config{

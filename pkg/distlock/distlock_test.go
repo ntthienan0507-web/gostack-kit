@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/distlock"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/distlock"
 )
 
 // newTestRedis spins up an in-memory Redis (miniredis) and returns a

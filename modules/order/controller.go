@@ -5,8 +5,8 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
-	"github.com/ntthienan0507-web/go-api-template/pkg/response"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 )
 
 // Controller is thin: parse request, call service, write response.

@@ -14,8 +14,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/circuitbreaker"
-	"github.com/ntthienan0507-web/go-api-template/pkg/retry"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/circuitbreaker"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/retry"
 )
 
 // Config holds HTTP client settings for a single external service.

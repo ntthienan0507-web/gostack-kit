@@ -31,7 +31,7 @@ import (
 
     "go.uber.org/zap"
 
-    "github.com/ntthienan0507-web/go-api-template/pkg/httpclient"
+    "github.com/ntthienan0507-web/gostack-kit/pkg/httpclient"
 )
 
 // Client wraps the base HTTP client for the Payment service.

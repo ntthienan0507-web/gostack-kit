@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 )
 
 const validatedRequestKey = "validated_request"

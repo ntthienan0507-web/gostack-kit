@@ -3,7 +3,7 @@ package user
 import (
 	"net/http"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 )
 
 // User module error codes.

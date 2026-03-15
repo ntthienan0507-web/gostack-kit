@@ -3,7 +3,7 @@ package elasticsearch
 import (
 	"net/http"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 )
 
 // Sentinel errors for Elasticsearch operations.

@@ -9,7 +9,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 const migrationsDir = "db/migrations"
@@ -40,7 +40,7 @@ func Run() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: go-api-template <command>")
+	fmt.Println("Usage: gostack-kit <command>")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  serve      Start the API server")
@@ -110,7 +110,7 @@ func psqlShell(cfg *config.Config) {
 
 func requireArg(minArgs int, usage string) {
 	if len(os.Args) < minArgs {
-		fatal("Usage: go-api-template %s", usage)
+		fatal("Usage: gostack-kit %s", usage)
 	}
 }
 

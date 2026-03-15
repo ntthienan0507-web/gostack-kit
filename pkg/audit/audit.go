@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/async"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/async"
 )
 
 // Action represents what happened.

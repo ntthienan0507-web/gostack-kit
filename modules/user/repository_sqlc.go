@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	db "github.com/ntthienan0507-web/go-api-template/db/sqlc"
+	db "github.com/ntthienan0507-web/gostack-kit/db/sqlc"
 )
 
 // sqlcRepository implements Repository using SQLC-generated code.

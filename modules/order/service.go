@@ -2,6 +2,7 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -10,9 +11,10 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/async"
-	"github.com/ntthienan0507-web/go-api-template/pkg/cache"
-	"github.com/ntthienan0507-web/go-api-template/pkg/database"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/async"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/broker"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/cache"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/database"
 )
 
 // cacheTTL is the time-to-live for cached order responses.
@@ -171,7 +173,23 @@ func (s *Service) Create(ctx context.Context, req CreateOrderRequest) (*OrderRes
 			return nil, fmt.Errorf("create order: %w", err)
 		}
 
-		// TODO: add outbox event for order.created (broker.WriteOutbox)
+		// 2b: Write outbox event atomically in the same transaction.
+		event := OrderCreatedEvent{
+			OrderID:    result.ID,
+			UserID:     result.UserID,
+			TotalPrice: result.TotalPrice,
+			Currency:   result.Currency,
+			Status:     string(result.Status),
+			ItemCount:  len(result.Items),
+			CreatedAt:  result.CreatedAt,
+		}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return nil, fmt.Errorf("marshal order created event: %w", err)
+		}
+		if err := broker.WriteOutbox(tx, TopicOrderCreated, result.ID.String(), payload, nil); err != nil {
+			return nil, fmt.Errorf("write outbox: %w", err)
+		}
 
 		return result, nil
 	})
@@ -231,7 +249,19 @@ func (s *Service) Cancel(ctx context.Context, id uuid.UUID) error {
 			return fmt.Errorf("update status: %w", err)
 		}
 
-		// TODO: add outbox event for order.cancelled
+		// Write cancellation event to outbox atomically.
+		event := OrderCancelledEvent{
+			OrderID:     id,
+			UserID:      existing.UserID,
+			CancelledAt: time.Now(),
+		}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("marshal order cancelled event: %w", err)
+		}
+		if err := broker.WriteOutbox(tx, TopicOrderCancelled, id.String(), payload, nil); err != nil {
+			return fmt.Errorf("write outbox: %w", err)
+		}
 
 		return nil
 	})

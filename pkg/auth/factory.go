@@ -3,7 +3,7 @@ package auth
 import (
 	"fmt"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 // NewProvider selects the auth provider based on AUTH_PROVIDER config.

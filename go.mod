@@ -1,4 +1,4 @@
-module github.com/ntthienan0507-web/go-api-template
+module github.com/ntthienan0507-web/gostack-kit
 
 go 1.25.0
 

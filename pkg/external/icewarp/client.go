@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/httpclient"
-	"github.com/ntthienan0507-web/go-api-template/pkg/retry"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/httpclient"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/retry"
 )
 
 // Config holds IceWarp client configuration.

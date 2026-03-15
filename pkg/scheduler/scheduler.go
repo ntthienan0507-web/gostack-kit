@@ -27,7 +27,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/distlock"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/distlock"
 )
 
 // DefaultTimeout is the default max execution time for a job.

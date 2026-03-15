@@ -9,12 +9,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
 func runDB() {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: go-api-template db <command>")
+		fmt.Println("Usage: gostack-kit db <command>")
 		fmt.Println()
 		fmt.Println("Commands:")
 		fmt.Println("  test               Test database connection")
