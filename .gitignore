@@ -38,3 +38,4 @@ tmp/
 go-api-template
 gostack-kit
 bin/
+docker-compose.override.yml
