@@ -204,6 +204,7 @@ fmt.Println("debug:", err)
 ## File locations
 
 ```
+pkg/app/          — app bootstrap; services_*.go files are optional (deleted by cmd/init)
 pkg/apperror/     — error types + common errors
 pkg/response/     — HTTP response helpers
 pkg/database/     — DB connections, transactions, locks

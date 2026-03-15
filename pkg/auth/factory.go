@@ -10,7 +10,7 @@ import (
 func NewProvider(cfg *config.Config) (Provider, error) {
 	switch cfg.AuthProvider {
 	case "jwt":
-		return NewJWTProvider(cfg), nil
+		return NewJWTProvider(cfg)
 	case "keycloak":
 		return NewKeycloakProvider(cfg), nil
 	default:

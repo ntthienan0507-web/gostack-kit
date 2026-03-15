@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -280,18 +281,23 @@ func cleanupUnused(cfg *initConfig) {
 	// --- External services ---
 	if !cfg.EnableSendGrid {
 		rm("pkg/external/sendgrid")
+		rm("pkg/app/services_sendgrid.go")
 	}
 	if !cfg.EnableStripe {
 		rm("pkg/external/stripe")
+		rm("pkg/app/services_stripe.go")
 	}
 	if !cfg.EnableIceWarp {
 		rm("pkg/external/icewarp")
+		rm("pkg/app/services_icewarp.go")
 	}
 	if !cfg.EnableFirebase {
 		rm("pkg/external/firebase")
+		rm("pkg/app/services_firebase.go")
 	}
 	if !cfg.EnableElasticsearch {
 		rm("pkg/external/elasticsearch")
+		rm("pkg/app/services_elasticsearch.go")
 	}
 
 	// --- SonarQube ---
@@ -318,6 +324,9 @@ func cleanupUnused(cfg *initConfig) {
 	if len(removed) > 0 {
 		fmt.Printf("  ✓ Cleaned up %d unused files/dirs\n", len(removed))
 	}
+
+	fmt.Println("  Running go mod tidy...")
+	exec.Command("go", "mod", "tidy").Run()
 }
 
 // --- File generation (same as before) ---

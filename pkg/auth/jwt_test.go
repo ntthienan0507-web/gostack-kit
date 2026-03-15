@@ -11,15 +11,18 @@ import (
 	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 )
 
-func newTestJWTProvider() Provider {
-	return NewJWTProvider(&config.Config{
+func newTestJWTProvider(t *testing.T) Provider {
+	t.Helper()
+	p, err := NewJWTProvider(&config.Config{
 		JWTSecret: "test-secret-key-for-testing",
 		JWTExpiry: time.Hour,
 	})
+	require.NoError(t, err)
+	return p
 }
 
 func TestJWT_GenerateToken(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 
 	token, err := p.GenerateToken("user-123", "user@example.com", "admin")
 
@@ -28,7 +31,7 @@ func TestJWT_GenerateToken(t *testing.T) {
 }
 
 func TestJWT_ValidateToken_Success(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 	ctx := context.Background()
 
 	token, err := p.GenerateToken("user-123", "user@example.com", "admin")
@@ -43,7 +46,7 @@ func TestJWT_ValidateToken_Success(t *testing.T) {
 }
 
 func TestJWT_ValidateToken_InvalidToken(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 	ctx := context.Background()
 
 	claims, err := p.ValidateToken(ctx, "invalid.token.here")
@@ -54,11 +57,12 @@ func TestJWT_ValidateToken_InvalidToken(t *testing.T) {
 }
 
 func TestJWT_ValidateToken_WrongSecret(t *testing.T) {
-	p1 := newTestJWTProvider()
-	p2 := NewJWTProvider(&config.Config{
+	p1 := newTestJWTProvider(t)
+	p2, err := NewJWTProvider(&config.Config{
 		JWTSecret: "different-secret",
 		JWTExpiry: time.Hour,
 	})
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	token, err := p1.GenerateToken("user-123", "user@example.com", "admin")
@@ -71,10 +75,11 @@ func TestJWT_ValidateToken_WrongSecret(t *testing.T) {
 }
 
 func TestJWT_ValidateToken_Expired(t *testing.T) {
-	p := NewJWTProvider(&config.Config{
+	p, err := NewJWTProvider(&config.Config{
 		JWTSecret: "test-secret",
-		JWTExpiry: -time.Hour, // already expired
+		JWTExpiry: -time.Hour,
 	})
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	token, err := p.GenerateToken("user-123", "user@example.com", "admin")
@@ -87,7 +92,7 @@ func TestJWT_ValidateToken_Expired(t *testing.T) {
 }
 
 func TestJWT_RefreshToken_Success(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 	ctx := context.Background()
 
 	original, err := p.GenerateToken("user-123", "user@example.com", "admin")
@@ -107,7 +112,7 @@ func TestJWT_RefreshToken_Success(t *testing.T) {
 }
 
 func TestJWT_RefreshToken_InvalidToken(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 	ctx := context.Background()
 
 	_, err := p.RefreshToken(ctx, "bad-token")
@@ -116,7 +121,7 @@ func TestJWT_RefreshToken_InvalidToken(t *testing.T) {
 }
 
 func TestJWT_GenerateToken_DifferentUsersGetDifferentTokens(t *testing.T) {
-	p := newTestJWTProvider()
+	p := newTestJWTProvider(t)
 
 	t1, err := p.GenerateToken("user-1", "a@b.com", "user")
 	require.NoError(t, err)

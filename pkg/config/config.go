@@ -39,9 +39,13 @@ type Config struct {
 	EncryptionKey string `mapstructure:"ENCRYPTION_KEY"`
 
 	// Auth
-	AuthProvider string        `mapstructure:"AUTH_PROVIDER"`
-	JWTSecret    string        `mapstructure:"JWT_SECRET"`
-	JWTExpiry    time.Duration `mapstructure:"JWT_EXPIRY"`
+	AuthProvider   string        `mapstructure:"AUTH_PROVIDER"`
+	JWTSecret      string        `mapstructure:"JWT_SECRET"`
+	JWTExpiry      time.Duration `mapstructure:"JWT_EXPIRY"`
+	JWTAlgorithm   string        `mapstructure:"JWT_ALGORITHM"`        // "HS256" (default) | "RS256"
+	JWTPrivateKeyFile string     `mapstructure:"JWT_PRIVATE_KEY_FILE"` // path to PEM-encoded RSA private key
+	JWTPublicKeyFile  string     `mapstructure:"JWT_PUBLIC_KEY_FILE"`  // path to PEM-encoded RSA public key
+	JWTKeyID       string        `mapstructure:"JWT_KEY_ID"`           // key ID (kid) for key rotation
 
 	// Keycloak (only when AUTH_PROVIDER=keycloak)
 	KeycloakHost         string `mapstructure:"KEYCLOAK_HOST"`
@@ -161,6 +165,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("REDIS_MIN_IDLE", 2)
 	v.SetDefault("AUTH_PROVIDER", "jwt")
 	v.SetDefault("JWT_EXPIRY", "24h")
+	v.SetDefault("JWT_ALGORITHM", "HS256")
 	v.SetDefault("SENDGRID_URL", "https://api.sendgrid.com")
 	v.SetDefault("STRIPE_URL", "https://api.stripe.com")
 	v.SetDefault("KAFKA_BROKERS", "localhost:9092")

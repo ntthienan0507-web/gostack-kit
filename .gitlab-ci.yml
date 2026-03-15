@@ -24,7 +24,7 @@
 #   - SONAR_HOST_URL      — SonarQube URL (optional)
 ###############################################################################
 
-image: golang:1.23-alpine
+image: golang:1.25-alpine
 
 variables:
   GOPATH: /go
@@ -86,7 +86,7 @@ format:
 
 security:
   stage: check
-  image: golang:1.23
+  image: golang:1.25
   script:
     - go install golang.org/x/vuln/cmd/govulncheck@latest
     - govulncheck ./...

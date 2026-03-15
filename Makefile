@@ -1,4 +1,4 @@
-.PHONY: dev build sqlc swagger lint test fmt vet clean help \
+.PHONY: dev build sqlc swagger lint test test-integration fmt vet clean help \
 	migrate migrate-status migrate-rollback migrate-create \
 	mock test-db db-tables db-shell
 
@@ -21,6 +21,9 @@ run: ## Run without building (development)
 test: ## Run tests with coverage
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
+
+test-integration: ## Run integration tests (requires Docker)
+	go test -tags integration -race -count=1 -timeout 120s ./...
 
 lint: ## Run linter
 	golangci-lint run ./...

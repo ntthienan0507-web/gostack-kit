@@ -9,30 +9,37 @@ import (
 	"github.com/ntthienan0507-web/gostack-kit/pkg/broker"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/crypto"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/external/elasticsearch"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/external/firebase"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/external/icewarp"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/external/sendgrid"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/external/stripe"
 )
 
-// Services holds all external service clients.
-// Initialized based on which env vars are configured — unconfigured services are nil.
-// Modules check for nil before using: if app.Services.SendGrid != nil { ... }
 type Services struct {
 	Encryptor     *crypto.Encryptor
-	SendGrid      *sendgrid.Client
-	Stripe        *stripe.Client
-	IceWarp       *icewarp.Client
-	Firebase      *firebase.Client
-	Elasticsearch *elasticsearch.Client
 	KafkaProducer broker.Producer
 	KafkaConsumer broker.Consumer
+	external      map[string]any
 }
 
-// initServices creates external service clients based on config.
-// Only services with configured credentials are initialized.
-// Missing config = nil client = service not available (not an error).
+type serviceInitFunc func(ctx context.Context, cfg *config.Config, logger *zap.Logger, s *Services) error
+
+var optionalServiceInits []serviceInitFunc
+
+func registerOptionalService(fn serviceInitFunc) {
+	optionalServiceInits = append(optionalServiceInits, fn)
+}
+
+func (s *Services) register(name string, svc any) {
+	if s.external == nil {
+		s.external = make(map[string]any)
+	}
+	s.external[name] = svc
+}
+
+func (s *Services) lookup(name string) any {
+	if s.external == nil {
+		return nil
+	}
+	return s.external[name]
+}
+
 func initServices(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*Services, error) {
 	s := &Services{}
 
@@ -46,62 +53,11 @@ func initServices(ctx context.Context, cfg *config.Config, logger *zap.Logger) (
 		logger.Info("encryption enabled")
 	}
 
-	// SendGrid
-	if cfg.SendGridAPIKey != "" {
-		s.SendGrid = sendgrid.New(sendgrid.Config{
-			BaseURL:   cfg.SendGridURL,
-			APIKey:    cfg.SendGridAPIKey,
-			FromEmail: cfg.SendGridFrom,
-		}, logger)
-		logger.Info("sendgrid client initialized")
-	}
-
-	// Stripe
-	if cfg.StripeSecretKey != "" {
-		s.Stripe = stripe.New(stripe.Config{
-			BaseURL:   cfg.StripeURL,
-			SecretKey: cfg.StripeSecretKey,
-		}, logger)
-		logger.Info("stripe client initialized")
-	}
-
-	// IceWarp
-	if cfg.IceWarpURL != "" && cfg.IceWarpUsername != "" {
-		s.IceWarp = icewarp.New(icewarp.Config{
-			URL:      cfg.IceWarpURL,
-			Username: cfg.IceWarpUsername,
-			Password: cfg.IceWarpPassword,
-			From:     cfg.IceWarpFrom,
-		}, logger)
-		logger.Info("icewarp client initialized")
-	}
-
-	// Firebase
-	if cfg.FirebaseCredentialsFile != "" {
-		fb, err := firebase.New(ctx, firebase.Config{
-			CredentialsFile: cfg.FirebaseCredentialsFile,
-			ProjectID:       cfg.FirebaseProjectID,
-		}, logger)
-		if err != nil {
-			return nil, fmt.Errorf("init firebase: %w", err)
+	// Optional external services (registered by services_*.go files)
+	for _, initFn := range optionalServiceInits {
+		if err := initFn(ctx, cfg, logger, s); err != nil {
+			return nil, err
 		}
-		s.Firebase = fb
-		logger.Info("firebase client initialized")
-	}
-
-	// Elasticsearch
-	if cfg.ElasticURLs != "" {
-		es, err := elasticsearch.New(elasticsearch.Config{
-			URLs:     cfg.ElasticURLList(),
-			Username: cfg.ElasticUsername,
-			Password: cfg.ElasticPassword,
-			APIKey:   cfg.ElasticAPIKey,
-		}, logger)
-		if err != nil {
-			return nil, fmt.Errorf("init elasticsearch: %w", err)
-		}
-		s.Elasticsearch = es
-		logger.Info("elasticsearch client initialized")
 	}
 
 	// Kafka Producer
@@ -150,12 +106,10 @@ func initServices(ctx context.Context, cfg *config.Config, logger *zap.Logger) (
 	return s, nil
 }
 
-// shutdownServices cleanly releases external service resources.
 func (s *Services) shutdown(logger *zap.Logger) {
 	if s == nil {
 		return
 	}
-
 	if s.KafkaProducer != nil {
 		if err := s.KafkaProducer.Close(); err != nil {
 			logger.Error("close kafka producer", zap.Error(err))

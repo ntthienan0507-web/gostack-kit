@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
-	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 )
 
 const claimsKey = "claims"
@@ -17,16 +17,14 @@ func Auth(provider auth.Provider) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		header := ctx.GetHeader("Authorization")
 		if header == "" || !strings.HasPrefix(header, "Bearer ") {
-			response.Unauthorized(ctx, "Missing bearer token")
-			ctx.Abort()
+			apperror.Abort(ctx, apperror.ErrTokenMissing)
 			return
 		}
 
 		token := strings.TrimPrefix(header, "Bearer ")
 		claims, err := provider.ValidateToken(ctx.Request.Context(), token)
 		if err != nil {
-			response.Unauthorized(ctx, "Invalid or expired token")
-			ctx.Abort()
+			apperror.Abort(ctx, apperror.ErrTokenInvalid)
 			return
 		}
 
@@ -55,14 +53,12 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		claims, ok := GetClaims(ctx)
 		if !ok {
-			response.Unauthorized(ctx, "Authentication required")
-			ctx.Abort()
+			apperror.Abort(ctx, apperror.ErrUnauthorized)
 			return
 		}
 
 		if _, allowed := roleSet[claims.Role]; !allowed {
-			response.Forbidden(ctx, "Insufficient permissions")
-			ctx.Abort()
+			apperror.Abort(ctx, apperror.ErrForbidden)
 			return
 		}
 
