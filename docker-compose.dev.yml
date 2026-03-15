@@ -1,0 +1,15 @@
+###############################################################################
+# docker-compose.dev.yml — Infrastructure-only override for local development
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# This starts only the infrastructure services (postgres, mongo, keycloak)
+# so you can run the Go app locally with `go run . serve`.
+###############################################################################
+
+services:
+  # Disable the app service — we run it on the host during development.
+  app:
+    profiles:
+      - donotstart

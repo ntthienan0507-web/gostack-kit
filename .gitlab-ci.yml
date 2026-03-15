@@ -1,0 +1,281 @@
+###############################################################################
+# GitLab CI/CD Pipeline — Go API Template
+#
+# Stages:
+#   1. check    → lint, vet, format, security scan
+#   2. test     → unit tests + coverage
+#   3. build    → Docker image
+#   4. deploy   → deploy to K8s (dev/staging/prod)
+#
+# Triggers:
+#   - MR (merge request)  → check + test (block merge if fail)
+#   - Push to develop     → check + test + build + deploy dev
+#   - Push to main        → check + test + build + deploy staging
+#   - Tag v*              → check + test + build + deploy prod
+#
+# Required CI/CD Variables (Settings → CI/CD → Variables):
+#   - REGISTRY_USER       — container registry username
+#   - REGISTRY_PASSWORD   — container registry password
+#   - REGISTRY_URL        — e.g. registry.gitlab.com/myorg/myapp
+#   - KUBECONFIG_DEV      — kubeconfig for dev cluster (File type)
+#   - KUBECONFIG_STAGING  — kubeconfig for staging cluster (File type)
+#   - KUBECONFIG_PROD     — kubeconfig for prod cluster (File type)
+#   - SONAR_TOKEN         — SonarQube token (optional)
+#   - SONAR_HOST_URL      — SonarQube URL (optional)
+###############################################################################
+
+image: golang:1.23-alpine
+
+variables:
+  GOPATH: /go
+  CGO_ENABLED: "0"
+  GOOS: linux
+  IMAGE_NAME: ${REGISTRY_URL}/${CI_PROJECT_NAME}
+
+# Cache Go modules across jobs
+cache:
+  key: ${CI_COMMIT_REF_SLUG}-go
+  paths:
+    - .go-cache/
+  policy: pull-push
+
+before_script:
+  - export GOMODCACHE=${CI_PROJECT_DIR}/.go-cache/mod
+  - export GOCACHE=${CI_PROJECT_DIR}/.go-cache/build
+
+stages:
+  - check
+  - test
+  - build
+  - deploy
+
+###############################################################################
+# Stage 1: CHECK — code quality gates (blocks MR merge if fail)
+###############################################################################
+
+lint:
+  stage: check
+  image: golangci/golangci-lint:v2.1-alpine
+  script:
+    - golangci-lint run ./... --timeout 5m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+vet:
+  stage: check
+  script:
+    - go vet ./...
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+format:
+  stage: check
+  script:
+    - |
+      UNFORMATTED=$(gofmt -l .)
+      if [ -n "$UNFORMATTED" ]; then
+        echo "Files not formatted:"
+        echo "$UNFORMATTED"
+        exit 1
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+security:
+  stage: check
+  image: golang:1.23
+  script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    - govulncheck ./...
+  allow_failure: true  # advisory, don't block pipeline
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+###############################################################################
+# Stage 2: TEST — unit tests + coverage
+###############################################################################
+
+test:
+  stage: test
+  script:
+    - go test -race -coverprofile=coverage.out -covermode=atomic ./...
+    - go tool cover -func=coverage.out | tail -1
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.out
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# Optional: SonarQube analysis
+sonarqube:
+  stage: test
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+  script:
+    - sonar-scanner
+      -Dsonar.projectKey=${CI_PROJECT_NAME}
+      -Dsonar.sources=.
+      -Dsonar.go.coverage.reportPaths=coverage.out
+      -Dsonar.host.url=${SONAR_HOST_URL}
+      -Dsonar.token=${SONAR_TOKEN}
+  needs:
+    - test
+  rules:
+    - if: $SONAR_TOKEN && $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $SONAR_TOKEN && $CI_COMMIT_BRANCH == "main"
+
+###############################################################################
+# Stage 3: BUILD — Docker image
+###############################################################################
+
+.build_template: &build_template
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin "$REGISTRY_URL"
+  script:
+    - docker build
+      --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      --build-arg VCS_REF=${CI_COMMIT_SHORT_SHA}
+      --build-arg VERSION=${IMAGE_TAG}
+      -t ${IMAGE_NAME}:${IMAGE_TAG}
+      -t ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}
+      .
+    - docker push ${IMAGE_NAME}:${IMAGE_TAG}
+    - docker push ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}
+
+build:dev:
+  <<: *build_template
+  variables:
+    IMAGE_TAG: dev-latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+build:staging:
+  <<: *build_template
+  variables:
+    IMAGE_TAG: staging-latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+build:prod:
+  <<: *build_template
+  variables:
+    IMAGE_TAG: ${CI_COMMIT_TAG}
+  script:
+    - docker build
+      -t ${IMAGE_NAME}:${CI_COMMIT_TAG}
+      -t ${IMAGE_NAME}:latest
+      .
+    - docker push ${IMAGE_NAME}:${CI_COMMIT_TAG}
+    - docker push ${IMAGE_NAME}:latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+###############################################################################
+# Stage 4: DEPLOY — Kustomize to K8s
+###############################################################################
+
+.deploy_template: &deploy_template
+  stage: deploy
+  image: bitnami/kubectl:1.29
+  before_script:
+    - mkdir -p ~/.kube
+    - cp ${KUBECONFIG_FILE} ~/.kube/config
+  script:
+    - echo "Deploying ${IMAGE_TAG} to ${ENVIRONMENT}..."
+    - cd deployments/k8s/overlays/${ENVIRONMENT}
+    - kubectl kustomize . | sed "s|myapp/api:.*|${IMAGE_NAME}:${IMAGE_TAG}|g" | kubectl apply -f -
+    - kubectl -n myapp-${ENVIRONMENT} rollout status deployment/${ENVIRONMENT}-api --timeout=120s
+    - echo "Deploy complete. Running pods:"
+    - kubectl -n myapp-${ENVIRONMENT} get pods -l app=api
+
+deploy:dev:
+  <<: *deploy_template
+  variables:
+    ENVIRONMENT: dev
+    IMAGE_TAG: dev-latest
+    KUBECONFIG_FILE: ${KUBECONFIG_DEV}
+  needs:
+    - build:dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy:staging:
+  <<: *deploy_template
+  variables:
+    ENVIRONMENT: staging
+    IMAGE_TAG: staging-latest
+    KUBECONFIG_FILE: ${KUBECONFIG_STAGING}
+  needs:
+    - build:staging
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy:prod:
+  <<: *deploy_template
+  variables:
+    ENVIRONMENT: prod
+    IMAGE_TAG: ${CI_COMMIT_TAG}
+    KUBECONFIG_FILE: ${KUBECONFIG_PROD}
+  needs:
+    - build:prod
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  when: manual  # require manual click to deploy to prod
+
+###############################################################################
+# Maintenance jobs
+###############################################################################
+
+# Run DB migrations (manual trigger)
+migrate:
+  stage: deploy
+  image: bitnami/kubectl:1.29
+  before_script:
+    - mkdir -p ~/.kube
+    - cp ${KUBECONFIG_FILE} ~/.kube/config
+  script:
+    - kubectl -n myapp-${ENVIRONMENT} exec deploy/${ENVIRONMENT}-api -- ./go-api-template migrate up
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        ENVIRONMENT: staging
+        KUBECONFIG_FILE: ${KUBECONFIG_STAGING}
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      variables:
+        ENVIRONMENT: prod
+        KUBECONFIG_FILE: ${KUBECONFIG_PROD}
+
+# Cleanup old container images (weekly schedule)
+cleanup:registry:
+  stage: deploy
+  image: alpine:3.20
+  script:
+    - apk add --no-cache curl jq
+    - |
+      echo "Cleaning up images older than 30 days..."
+      # GitLab API: list and delete old tags
+      # Adjust per your registry API
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  when: manual

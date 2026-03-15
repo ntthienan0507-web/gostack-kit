@@ -1,0 +1,640 @@
+# Database Patterns & Best Practices
+
+Reference guide for all database patterns in the template.
+
+## Table of Contents
+
+- [Migration](#migration)
+- [Soft Delete](#soft-delete)
+- [Partial Index](#partial-index)
+- [Transaction](#transaction)
+- [Optimistic Locking](#optimistic-locking)
+- [Pessimistic Locking](#pessimistic-locking)
+- [Distributed Lock](#distributed-lock)
+- [Outbox Pattern](#outbox-pattern)
+- [Table Partitioning](#table-partitioning)
+- [Dead Letter Table](#dead-letter-table)
+- [Cache-Aside Pattern](#cache-aside-pattern)
+- [Connection Pooling](#connection-pooling)
+- [CLI Commands](#cli-commands)
+
+---
+
+## Migration
+
+Uses [goose](https://github.com/pressly/goose) for schema versioning. Migration files are located in `db/migrations/`.
+
+```bash
+# Run migration
+go run . migrate up
+
+# View status
+go run . migrate status
+
+# Rollback
+go run . migrate down
+
+# Create new migration
+go run . migrate create add_column_xyz sql
+```
+
+**Rules:**
+- Each migration must have both `+goose Up` and `+goose Down`
+- Do not use GORM AutoMigrate — schema is managed by goose
+- Migrations must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`)
+- File naming: `00001_create_users.sql` (sequential number + description)
+
+---
+
+## Soft Delete
+
+Never actually `DELETE` — use a `deleted_at` timestamp instead.
+
+```sql
+-- Schema
+deleted_at TIMESTAMPTZ  -- NULL = active, NOT NULL = deleted
+```
+
+```go
+// Repository: all queries filter by this
+db.Where("deleted_at IS NULL")
+
+// Delete = set timestamp
+db.Model(&row).Update("deleted_at", time.Now())
+```
+
+**Why:**
+- Audit trail — know who deleted what and when
+- Recovery — undelete if something was deleted by mistake
+- Referential integrity — foreign keys are not broken
+- Compliance — GDPR requires keeping data for a period before permanently deleting
+
+---
+
+## Partial Index
+
+Only index rows that match a condition — smaller, faster, less memory.
+
+```sql
+-- ONLY index active users (skip deleted ones)
+CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+
+-- ONLY index pending outbox (skip 99% published rows)
+CREATE INDEX idx_outbox_pending ON outbox(created_at) WHERE status = 'pending';
+```
+
+**When to use:**
+
+| Scenario | Benefit |
+|----------|---------|
+| Soft delete (`WHERE deleted_at IS NULL`) | Excludes deleted rows from the index |
+| Status filter (only 1-2% rows match) | Index is 100-1000x smaller |
+| Queue pattern (`WHERE processed = false`) | Scans only pending items |
+| Boolean flag (`WHERE is_active = true`) | Skips inactive rows |
+
+**When NOT to use:**
+- Every row needs to be queried (a full index is better)
+- Status is evenly distributed 50/50 (no benefit)
+- Query does not match the WHERE condition of the index (PostgreSQL ignores the index)
+
+---
+
+## Transaction
+
+### GORM Transaction
+
+```go
+// Simple — no return value needed
+err := database.WithTransaction(ctx, db, logger, func(tx *gorm.DB) error {
+    if err := tx.Create(&order).Error; err != nil {
+        return err  // auto rollback
+    }
+    if err := tx.Create(&orderItems).Error; err != nil {
+        return err  // auto rollback
+    }
+    return nil  // auto commit
+})
+
+// With return value
+order, err := database.WithTransactionResult[*Order](ctx, db, logger, func(tx *gorm.DB) (*Order, error) {
+    // ...
+    return &order, nil
+})
+```
+
+### SQLC Transaction
+
+```go
+err := store.ExecTx(ctx, func(q *db.Queries) error {
+    // q uses a transaction, not the connection pool
+    if err := q.CreateUser(ctx, params); err != nil {
+        return err
+    }
+    return q.CreateProfile(ctx, params)
+})
+```
+
+**Rules:**
+- Keep transactions as short as possible (< 100ms)
+- Do not call external services inside a transaction (HTTP calls, Kafka publish)
+- Use the outbox pattern if you need to publish events at the same time
+- A panic inside a transaction = auto rollback
+
+---
+
+## Optimistic Locking
+
+Prevents lost updates when multiple users edit the same record.
+
+### How it works
+
+```
+User A: GET /users/1         → { version: 3, name: "John" }
+User B: GET /users/1         → { version: 3, name: "John" }
+User A: PUT /users/1         → { version: 3, name: "Johnny" }  ✅ OK, version 3→4
+User B: PUT /users/1         → { version: 3, name: "Jane" }    ❌ 409 Conflict (version=3 no longer exists)
+```
+
+### Implementation
+
+```sql
+-- Migration
+ALTER TABLE users ADD COLUMN version INT NOT NULL DEFAULT 1;
+```
+
+```go
+// Repository UPDATE
+result := tx.Model(&gormUser{}).
+    Where("id = ? AND version = ?", input.ID, input.Version).
+    Updates(map[string]any{
+        "full_name": input.FullName,
+        "version":   gorm.Expr("version + 1"),  // atomic increment
+    })
+
+if result.RowsAffected == 0 {
+    return nil, apperror.ErrStaleVersion  // 409 Conflict
+}
+```
+
+```go
+// Client sends version in the request
+type UpdateRequest struct {
+    FullName *string `json:"full_name"`
+    Version  *int    `json:"version"`  // client must send the version it read
+}
+```
+
+**When to use:**
+- Updating user profile, order details, settings
+- Multiple users may edit the same record
+- Conflicts are rare (< 5% of requests)
+
+**When NOT to use:**
+- New inserts (nothing to conflict with)
+- Read-only endpoints
+- Conflicts happen very frequently → use pessimistic lock
+
+---
+
+## Pessimistic Locking
+
+Locks the row at the database level — subsequent requests must wait.
+
+### Types
+
+```go
+import "github.com/ntthienan0507-web/go-api-template/pkg/database"
+
+// FOR UPDATE — exclusive lock, blocks both reads and writes
+tx.Clauses(database.ForUpdate()).Where("id = ?", id).First(&product)
+
+// FOR UPDATE NOWAIT — fail immediately if the row is locked
+tx.Clauses(database.ForUpdateNoWait()).Where("id = ?", id).First(&account)
+
+// FOR UPDATE SKIP LOCKED — skip locked rows (job queue pattern)
+tx.Clauses(database.ForUpdateSkipLocked()).Where("status = 'pending'").Limit(10).Find(&jobs)
+
+// FOR SHARE — shared lock (reads OK, writes blocked)
+tx.Clauses(database.ForShare()).Where("id = ?", id).First(&report)
+```
+
+### Example: Deducting inventory
+
+```go
+err := database.WithTransaction(ctx, db, logger, func(tx *gorm.DB) error {
+    var product Product
+    // Lock the row — no one else can modify it until commit
+    if err := tx.Clauses(database.ForUpdate()).
+        Where("id = ?", productID).First(&product).Error; err != nil {
+        return err
+    }
+
+    if product.Stock < quantity {
+        return ErrInsufficientStock
+    }
+
+    return tx.Model(&product).
+        Update("stock", product.Stock - quantity).Error
+})
+```
+
+**When to use each type:**
+
+| Type | Use case | Example |
+|------|----------|---------|
+| `ForUpdate` | Read-modify-write, needs guarantee | Deduct balance, deduct stock |
+| `ForUpdateNoWait` | Fail fast, do not want to wait | Payment processing |
+| `ForUpdateSkipLocked` | Job queue, multiple workers | Outbox relay, task queue |
+| `ForShare` | Consistent reads, allow concurrent reads | Report generation |
+
+**When NOT to use:**
+- Updating descriptive information (name, notes) → use optimistic lock
+- Long-running operations → holding lock too long = blocks everything
+- Cross-service operations → use distributed lock
+
+---
+
+## Distributed Lock
+
+Redis-based lock for multi-instance coordination.
+
+```go
+import "github.com/ntthienan0507-web/go-api-template/pkg/distlock"
+
+// Acquire lock
+lock, err := distlock.Acquire(ctx, redisClient, "cron:monthly-report", distlock.Config{
+    TTL:           30 * time.Second,   // auto-release if crash
+    RetryInterval: 100 * time.Millisecond,
+    RetryTimeout:  5 * time.Second,    // wait up to 5s
+})
+if errors.Is(err, distlock.ErrLockNotAcquired) {
+    return // another instance is running
+}
+
+defer lock.Release(ctx)
+
+// Long-running? Extend TTL
+lock.Extend(ctx, 60 * time.Second)
+```
+
+**How it works internally:**
+- Acquire: `SET key <random-uuid> NX PX <ttl>` — atomic, only 1 caller wins
+- Release: Lua script checks ownership before `DEL` — does not delete another caller's lock
+- Extend: Lua script checks ownership before `PEXPIRE`
+
+**When to use:**
+
+| Scenario | Key pattern |
+|----------|-------------|
+| Cron job that only 1 instance should run | `cron:{job-name}` |
+| Webhook deduplication | `webhook:{provider}:{event-id}` |
+| One-time migration | `migration:{version}` |
+| Rate limit per user (cross-instance) | `ratelimit:{user-id}` |
+
+**When NOT to use:**
+- Single instance → `sync.Mutex` is sufficient
+- DB row lock → `SELECT FOR UPDATE` is more appropriate
+- Every request needs a lock → too expensive, redesign
+
+---
+
+## Outbox Pattern
+
+Solves the dual-write problem: DB commit + Kafka publish must either both succeed or both fail.
+
+### Flow
+
+```
+Handler
+  ↓
+Transaction {
+  ├── INSERT order
+  ├── INSERT order_items
+  └── INSERT outbox (event)     ← same transaction
+}
+  ↓ (commit)
+Relay (background)
+  ├── SELECT FROM outbox WHERE status='pending'
+  ├── Publish to Kafka
+  └── UPDATE outbox SET status='published'
+```
+
+### Code
+
+```go
+// Service: write business data + event in 1 transaction
+err := database.WithTransaction(ctx, db, logger, func(tx *gorm.DB) error {
+    if err := tx.Create(&order).Error; err != nil {
+        return err
+    }
+
+    // Event is written in the same transaction — if order rolls back, the event rolls back too
+    return broker.WriteOutbox(tx, TopicOrderCreated, order.ID.String(), OrderCreatedEvent{
+        OrderID: order.ID,
+        UserID:  order.UserID,
+    })
+})
+```
+
+### Retry lifecycle
+
+```
+pending (retry_count=0)
+  → publish succeeds → published
+  → publish fails   → retry_count++, next_retry_at = now + backoff
+  → still failing after 5 retries → failed (stop retrying)
+  → partition cleanup  → move failed → outbox_failed (dead letter)
+```
+
+### Topic registration
+
+```go
+// modules/order/events.go — each module defines its own topics
+var (
+    TopicOrderCreated   = broker.MustRegisterTopic("order.order.created", "OrderCreatedEvent")
+    TopicOrderCancelled = broker.MustRegisterTopic("order.order.cancelled", "OrderCancelledEvent")
+)
+```
+
+**Naming convention:** `<module>.<entity>.<action>`
+
+---
+
+## Table Partitioning
+
+The outbox table uses range partitioning by month on `created_at`.
+
+### Structure
+
+```
+outbox (partitioned)
+├── outbox_2026_01   ← old month (can be DROPped if all published)
+├── outbox_2026_02
+├── outbox_2026_03   ← current month (relay polls here)
+├── outbox_2026_04   ← pre-created for next month
+└── outbox_2026_05
+```
+
+### Why partition
+
+| Without partitioning | With partitioning |
+|----------------------|-------------------|
+| Cleanup 1M rows: `DELETE` 30s + vacuum | `DROP TABLE outbox_2024_01` instant |
+| 1 large index, may not fit in memory | N small indexes per partition |
+| Relay scans the entire table | Relay only scans the current partition |
+
+### Maintenance
+
+```bash
+# Run monthly (via pg_cron or cron job)
+go run . db outbox-maintain
+```
+
+The function `drop_old_outbox_partitions(3)` automatically:
+1. Partition has `pending` rows → **SKIP** (relay is still processing)
+2. Partition has `failed` rows → **MOVE** to `outbox_failed`, then **DROP**
+3. Partition has only `published` rows → **DROP** directly
+
+---
+
+## Dead Letter Table
+
+`outbox_failed` — stores permanently failed messages for investigation.
+
+### When a message enters the dead letter table
+
+1. Relay exhausts `max_retries` (default 5) → `status='failed'`
+2. Monthly maintenance runs `drop_old_outbox_partitions()`
+3. Failed rows are MOVEd to `outbox_failed` before DROPping the partition
+
+### Schema
+
+| Column | Purpose |
+|--------|---------|
+| `id, topic, key, payload` | Original data — can be replayed |
+| `retry_count, last_error` | Debug why it failed |
+| `source_partition` | Trace which partition it came from |
+| `resolved, resolved_at, resolved_note` | Ops tracking |
+
+### Handling
+
+```bash
+# View failed messages
+go run . db outbox-failed
+
+# Retry a specific message (re-insert into outbox)
+go run . db outbox-retry 42
+
+# Retry all (after fixing the root cause)
+go run . db outbox-retry-all
+
+# Manually discard
+go run . db query "UPDATE outbox_failed SET resolved=true, resolved_at=NOW(),
+  resolved_note='discarded — duplicate event' WHERE id=42"
+```
+
+---
+
+## Cache-Aside Pattern
+
+Redis cache for read-heavy endpoints.
+
+### Flow
+
+```
+GetByID(id)
+  ↓
+  ├── Redis GET order:{id}
+  │   ├── HIT  → return cached (skip DB)
+  │   └── MISS → query DB → SET cache (TTL 5m) → return
+  ↓
+Create/Update/Delete
+  └── Redis DEL order:{id}  ← invalidate
+```
+
+### Code
+
+```go
+// Read: cache-aside
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*OrderResponse, error) {
+    // 1. Try cache
+    if s.cache != nil {
+        cached, err := cache.GetJSON[OrderResponse](ctx, s.cache, cacheKey(id))
+        if err == nil {
+            return &cached, nil  // cache hit
+        }
+        // cache miss or error → fall through to DB
+    }
+
+    // 2. Query DB
+    order, err := s.repo.GetByID(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+
+    // 3. Populate cache
+    resp := ToResponse(order)
+    if s.cache != nil {
+        s.cache.SetJSON(ctx, cacheKey(id), resp, 5*time.Minute)
+    }
+
+    return &resp, nil
+}
+
+// Write: invalidate
+func (s *Service) Create(ctx context.Context, req CreateRequest) (*Response, error) {
+    // ... create in DB ...
+    if s.cache != nil {
+        s.cache.Delete(ctx, cacheKey(created.ID))
+    }
+}
+```
+
+**Rules:**
+- Cache is an optimization, not a hard dependency — if Redis is down, fall back to DB
+- Invalidate AFTER transaction commit — do not invalidate if rollback occurs
+- Use a reasonable TTL: too short = too many cache misses, too long = stale data
+- Cache keys should have a namespace: `order:{id}`, `user:{id}` — avoid collisions
+
+---
+
+## Connection Pooling
+
+### Config
+
+```bash
+# .env
+DB_MAX_CONNS=10            # max connections per instance (default: 10)
+DB_MIN_CONNS=2             # keep this many idle connections warm (default: 2)
+DB_CONN_MAX_LIFETIME=1h    # recycle connection after this time (default: 1h)
+DB_CONN_MAX_IDLE_TIME=30m  # close idle connection after this time (default: 30m)
+```
+
+### Why all 4 settings are needed
+
+```
+DB_MAX_CONNS (10)
+  └── Maximum total connections this instance can open
+      Too many × N instances = "too many connections"
+      Too few = requests must wait for a free connection
+
+DB_MIN_CONNS (2)
+  └── Connections kept warm when idle
+      Avoids latency of creating a new connection when the first request arrives
+
+DB_CONN_MAX_LIFETIME (1h)
+  └── After 1h, close connection and create a new one
+      Why: DB/LB may kill old connections, DNS may change
+      MUST be shorter than DB's idle_in_transaction_session_timeout
+
+DB_CONN_MAX_IDLE_TIME (30m)
+  └── Connection idle > 30m → return it to the DB
+      Avoids holding unused connections, occupying slots
+```
+
+### Sizing guide
+
+```
+Formula: DB_MAX_CONNS × number_of_instances ≤ PostgreSQL max_connections
+
+PostgreSQL default: max_connections = 100
+Reserve 20 for admin/migration → 80 for the app
+
+Examples:
+  Dev (1 instance):    DB_MAX_CONNS=10   → 10 connections (OK)
+  Staging (5 pods):    DB_MAX_CONNS=10   → 50 connections (OK)
+  Production (20 pods): DB_MAX_CONNS=5   → 100 connections (near limit)
+  Production (50 pods): DB_MAX_CONNS=5   → 250 connections → NEED PGBOUNCER
+```
+
+### PgBouncer — Connection Multiplexer
+
+When there are many instances and app connections exceed the DB `max_connections` → PgBouncer is needed in between.
+
+```
+Without PgBouncer:
+  50 instances × 10 conns = 500 ──→ PostgreSQL (max 100) → CRASH
+
+With PgBouncer:
+  50 instances × 10 conns = 500 ──→ PgBouncer ──→ PostgreSQL
+                                    (multiplex)    (20 actual conns)
+```
+
+**How it works:** The app opens a connection to PgBouncer (port 6432), unaware of PgBouncer's existence. PgBouncer maintains a small pool of real connections to PostgreSQL. When the app finishes a query, PgBouncer reuses that connection for another app.
+
+**Pool modes:**
+
+| Mode | When connection is returned | Limitation | Use when |
+|------|---------------------------|------------|----------|
+| `transaction` | After each transaction | Cannot use prepared statements, SET, LISTEN | **Default, best fit** |
+| `session` | When the app closes the connection | Same as not having PgBouncer | Need prepared statements |
+| `statement` | After each statement | Cannot use transactions | Read-only workload |
+
+**Enable PgBouncer:**
+
+```bash
+# 1. Uncomment in docker-compose.yml (pgbouncer service)
+# 2. Change app config:
+DB_HOST=pgbouncer    # instead of postgres
+DB_PORT=6432         # instead of 5432
+DB_MAX_CONNS=5       # fewer per instance, PgBouncer handles multiplexing
+```
+
+**PgBouncer config:** `docker/pgbouncer/pgbouncer.ini`
+
+```ini
+pool_mode = transaction      # return connection after each TX
+max_client_conn = 500        # accept 500 app connections
+default_pool_size = 20       # only 20 real connections to PG
+```
+
+**Monitor PgBouncer:**
+
+```bash
+# Pool stats
+psql -h localhost -p 6432 -U postgres pgbouncer -c "SHOW POOLS;"
+
+# Client connections
+psql -h localhost -p 6432 -U postgres pgbouncer -c "SHOW CLIENTS;"
+
+# Server (actual DB) connections
+psql -h localhost -p 6432 -U postgres pgbouncer -c "SHOW SERVERS;"
+```
+
+### Notes when using PgBouncer (transaction mode)
+
+```go
+// ❌ DO NOT use prepared statements via PgBouncer transaction mode
+// PgBouncer returns the connection to another app after TX → prepared statement is lost
+
+// ❌ DO NOT use SET on the connection (it is shared)
+db.Exec("SET timezone = 'Asia/Ho_Chi_Minh'")  // affects other apps!
+
+// ❌ DO NOT use LISTEN/NOTIFY (requires session mode)
+
+// ✅ Use transaction-level settings instead of connection-level
+db.Exec("SET LOCAL timezone = 'Asia/Ho_Chi_Minh'")  // only within the current TX
+```
+
+---
+
+## CLI Commands
+
+```bash
+# Migration
+go run . migrate up|down|status|create|version
+
+# Database utilities
+go run . db test                  # test connection
+go run . db tables                # list tables
+go run . db columns <table>       # show columns
+go run . db query "SELECT ..."    # ad-hoc query
+go run . db shell                 # psql shell
+
+# Outbox maintenance
+go run . db outbox-maintain       # create partition + cleanup old
+go run . db outbox-partitions     # list partitions + sizes
+go run . db outbox-failed         # show failed messages
+go run . db outbox-retry <id>     # retry specific message
+go run . db outbox-retry-all      # retry all failed
+```

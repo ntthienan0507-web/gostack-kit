@@ -1,0 +1,6 @@
+;; PgBouncer user authentication list
+;; Format: "username" "password"
+;; Password must match PostgreSQL user's password
+;; For md5: "username" "md5<md5hash of password+username>"
+;; For plain (dev only): "username" "password"
+"postgres" "postgres"

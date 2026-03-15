@@ -1,0 +1,99 @@
+# golangci-lint configuration
+# Docs: https://golangci-lint.run/usage/configuration/
+# Run:  golangci-lint run ./...
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true
+
+linters:
+  enable:
+    # Bugs
+    - bodyclose          # checks HTTP response bodies are closed
+    - durationcheck      # checks for two durations multiplied together
+    - exportloopref      # checks for pointers to loop variables
+    - nilerr             # checks for err != nil but returns nil
+    - sqlclosecheck      # checks sql.Rows/Stmt are closed
+
+    # Style
+    - gofmt              # checks code is gofmt-ed
+    - goimports          # checks import ordering
+    - misspell           # checks for common misspellings
+    - unconvert          # removes unnecessary type conversions
+    - whitespace         # checks for unnecessary blank lines
+
+    # Performance
+    - prealloc           # finds slice declarations that could be pre-allocated
+
+    # Security
+    - gosec              # checks for security issues
+
+    # Complexity
+    - cyclop             # checks cyclomatic complexity
+    - gocognit           # checks cognitive complexity
+
+    # Error handling
+    - errcheck           # checks unchecked errors
+    - errname            # checks error variable naming (errFoo)
+
+  disable:
+    - wsl                # too opinionated on blank lines
+    - nlreturn           # too opinionated on blank lines before return
+    - varnamelen         # too strict on variable name length
+    - exhaustruct        # requires all struct fields initialized — impractical
+    - ireturn            # disallows returning interfaces — conflicts with DI patterns
+    - nonamedreturns     # named returns are fine when clear
+
+linters-settings:
+  cyclop:
+    max-complexity: 20
+
+  gocognit:
+    min-complexity: 30
+
+  gosec:
+    excludes:
+      - G104  # unhandled errors (covered by errcheck)
+      - G304  # file path from variable (common in CLIs)
+
+  errcheck:
+    exclude-functions:
+      - (*go.uber.org/zap.Logger).Sync  # logger.Sync() in defer
+
+  govet:
+    enable:
+      - shadow
+
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    # Test files: allow dot imports, unused params, magic numbers
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+        - cyclop
+        - gocognit
+
+    # Generated code: skip linting
+    - path: db/sqlc/
+      linters:
+        - gosec
+        - errcheck
+        - stylecheck
+
+    # Swagger docs: auto-generated
+    - path: docs/
+      linters:
+        - misspell
+        - gofmt
+
+  max-issues-per-linter: 50
+  max-same-issues: 5

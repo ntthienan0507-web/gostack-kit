@@ -1,0 +1,219 @@
+###############################################################################
+# docker-compose.yml — Go API Template
+#
+# Quick start:
+#   cp .env.example .env        # adjust values as needed
+#   docker compose up -d        # starts postgres + app + observability stack
+#
+# Observability UIs (available after `docker compose up`):
+#   Jaeger     — http://localhost:16686  (distributed traces)
+#   Prometheus — http://localhost:9090   (metrics)
+#   Grafana    — http://localhost:3000   (dashboards, anonymous login)
+#
+# To include optional services (mongo, keycloak), uncomment the relevant
+# blocks below and in the `app.depends_on` / `app.environment` sections.
+###############################################################################
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — primary datastore (used with DB_DRIVER=sqlc or gorm)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: myapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d myapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # PgBouncer — connection pooler (sits between app and PostgreSQL)
+  #
+  # WHY: PostgreSQL creates 1 process per connection (~10MB RAM each).
+  #   100 instances × 10 conns = 1000 connections → DB dies.
+  #   PgBouncer multiplexes: 1000 app connections → 20 actual DB connections.
+  #
+  # HOW TO USE:
+  #   1. Uncomment this service
+  #   2. Change app's DB_HOST from "postgres" to "pgbouncer"
+  #   3. Change app's DB_PORT from 5432 to 6432
+  #   4. Set DB_MAX_CONNS=5 per instance (PgBouncer handles the rest)
+  #
+  # Pool stats: psql -h localhost -p 6432 -U postgres pgbouncer -c "SHOW POOLS;"
+  # ---------------------------------------------------------------------------
+  # pgbouncer:
+  #   image: edoburu/pgbouncer:1.22.0
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6432:6432"
+  #   volumes:
+  #     - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+  #     - ./docker/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # MongoDB — optional, uncomment if DB_DRIVER=mongo
+  # ---------------------------------------------------------------------------
+  # mongo:
+  #   image: mongo:7
+  #   restart: unless-stopped
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage for local development
+  # ---------------------------------------------------------------------------
+  # minio:
+  #   image: minio/minio:latest
+  #   restart: unless-stopped
+  #   command: server /data --console-address ":9001"
+  #   ports:
+  #     - "9000:9000"   # S3 API
+  #     - "9001:9001"   # MinIO Console UI
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   volumes:
+  #     - minio_data:/data
+
+  # ---------------------------------------------------------------------------
+  # Keycloak — optional, uncomment if AUTH_PROVIDER=keycloak
+  # ---------------------------------------------------------------------------
+  # keycloak:
+  #   image: quay.io/keycloak/keycloak:24.0
+  #   restart: unless-stopped
+  #   command: start-dev
+  #   ports:
+  #     - "8180:8080"
+  #   environment:
+  #     KEYCLOAK_ADMIN: admin
+  #     KEYCLOAK_ADMIN_PASSWORD: admin
+
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Override hosts so the app reaches sibling containers by service name.
+      DB_HOST: postgres
+      # MONGO_URI: mongodb://mongo:27017   # uncomment with mongo service
+      # KEYCLOAK_HOST: http://keycloak:8080 # uncomment with keycloak service
+
+      # OpenTelemetry — export traces to Jaeger via OTLP HTTP
+      OTEL_ENABLED: "true"
+      OTEL_ENDPOINT: jaeger:4318
+      OTEL_SERVICE_NAME: go-api-template
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+      # mongo:
+      #   condition: service_started
+      # keycloak:
+      #   condition: service_started
+
+  # ---------------------------------------------------------------------------
+  # Jaeger — distributed tracing backend (all-in-one)
+  #   UI:        http://localhost:16686
+  #   OTLP gRPC: localhost:4317
+  #   OTLP HTTP: localhost:4318
+  # ---------------------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    restart: unless-stopped
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — metrics collection & querying
+  #   UI: http://localhost:9090
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - app
+
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboards & visualisation
+  #   UI: http://localhost:3000  (anonymous access enabled for local dev)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Allow anonymous access so local dev doesn't require login
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+  # ---------------------------------------------------------------------------
+  # SonarQube — code quality & security analysis
+  #   UI:  http://localhost:9000  (admin/admin → change on first login)
+  #   API: http://localhost:9000/api
+  #
+  # Setup:
+  #   1. docker compose up -d sonarqube
+  #   2. ./scripts/setup-sonar.sh    ← auto-creates project + token
+  #   3. make sonar                  ← run analysis
+  # ---------------------------------------------------------------------------
+  sonarqube:
+    image: sonarqube:10-community
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"  # single-node dev
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_logs:/opt/sonarqube/logs
+      - sonar_extensions:/opt/sonarqube/extensions
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/api/system/status | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  sonar_data:
+  sonar_logs:
+  sonar_extensions:
+  # mongo_data:   # uncomment with mongo service
+  # minio_data:   # uncomment with minio service
