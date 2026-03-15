@@ -5,7 +5,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/ntthienan0507-web/go-api-template/internal/response"
+	"github.com/ntthienan0507-web/go-api-template/pkg/response"
 )
 
 // Handler is thin: parse request, call service, write response.

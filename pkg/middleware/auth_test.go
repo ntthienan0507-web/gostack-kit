@@ -69,7 +69,7 @@ func TestAuth_MissingHeader(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Contains(t, w.Body.String(), "token_missing")
+	assert.Contains(t, w.Body.String(), "Missing bearer token")
 }
 
 func TestAuth_MissingBearerPrefix(t *testing.T) {
@@ -103,7 +103,7 @@ func TestAuth_InvalidToken(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Contains(t, w.Body.String(), "token_invalid")
+	assert.Contains(t, w.Body.String(), "Invalid or expired token")
 }
 
 // --- GetClaims ---
@@ -162,7 +162,7 @@ func TestRequireRole_Forbidden(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Contains(t, w.Body.String(), "forbidden")
+	assert.Contains(t, w.Body.String(), "Insufficient permissions")
 }
 
 func TestRequireRole_NoClaims(t *testing.T) {

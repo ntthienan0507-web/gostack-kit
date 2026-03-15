@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/ntthienan0507-web/go-api-template/internal/auth"
-	"github.com/ntthienan0507-web/go-api-template/internal/response"
+	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
+	"github.com/ntthienan0507-web/go-api-template/pkg/response"
 )
 
 const claimsKey = "claims"

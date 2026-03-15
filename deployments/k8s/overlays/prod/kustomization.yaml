@@ -1,0 +1,69 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: myapp
+
+commonLabels:
+  app.kubernetes.io/environment: prod
+
+commonAnnotations:
+  argocd.argoproj.io/sync-options: "ApplyOutOfSyncOnly=true"
+
+patches:
+  # 3 replicas, high resources, manual deployment strategy
+  - target:
+      kind: Deployment
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+
+  # HPA up to 20
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+
+  # Prod ingress with TLS
+  - target:
+      kind: Ingress
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.example.com
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - api.example.com
+            secretName: prod-tls-cert
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+
+configMapGenerator:
+  - name: go-api-template-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=warn
+      - TRACING_SAMPLER=0.1

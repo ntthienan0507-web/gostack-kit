@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/ntthienan0507-web/go-api-template/internal/response"
+	"github.com/ntthienan0507-web/go-api-template/pkg/response"
 )
 
 // Service holds business logic. No HTTP concerns, no ORM dependency.

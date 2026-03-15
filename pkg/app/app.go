@@ -4,153 +4,159 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	db "github.com/ntthienan0507-web/go-api-template/db/sqlc"
-	"github.com/ntthienan0507-web/go-api-template/internal/auth"
-	"github.com/ntthienan0507-web/go-api-template/internal/config"
-	"github.com/ntthienan0507-web/go-api-template/internal/database"
-	"github.com/ntthienan0507-web/go-api-template/internal/middleware"
-	usermodule "github.com/ntthienan0507-web/go-api-template/internal/module/user"
+	"github.com/ntthienan0507-web/go-api-template/pkg/apperror"
+	"github.com/ntthienan0507-web/go-api-template/pkg/async"
+	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
+	"github.com/ntthienan0507-web/go-api-template/pkg/config"
+	"github.com/ntthienan0507-web/go-api-template/pkg/database"
+	"github.com/ntthienan0507-web/go-api-template/pkg/middleware"
+	usermodule "github.com/ntthienan0507-web/go-api-template/modules/user"
 
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	_ "github.com/ntthienan0507-web/go-api-template/docs"
 )
 
-// App is the DI container. All dependencies live here — NO globals.
 type App struct {
 	cfg          *config.Config
 	logger       *zap.Logger
-	pool         *pgxpool.Pool // used by SQLC driver
-	gormDB       *gorm.DB     // used by GORM driver
+	pool         *pgxpool.Pool
+	gormDB       *gorm.DB
 	store        *database.Store
 	queries      *db.Queries
+	Redis        *redis.Client
 	authProvider auth.Provider
 	router       *gin.Engine
+	server       *http.Server
+	Workers      *async.WorkerPool
+	Services     *Services
 }
 
-// New wires all dependencies and returns a ready App.
-// DB_DRIVER config selects between SQLC (pgxpool) and GORM.
 func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, error) {
-	a := &App{
-		cfg:    cfg,
-		logger: logger,
-	}
+	a := &App{cfg: cfg, logger: logger}
 
-	// Database — init based on driver selection
 	switch cfg.DBDriver {
 	case "gorm":
 		gormDB, err := database.NewGormDB(cfg, logger)
-		if err != nil {
-			return nil, fmt.Errorf("init gorm: %w", err)
-		}
+		if err != nil { return nil, fmt.Errorf("init gorm: %w", err) }
 		a.gormDB = gormDB
-		logger.Info("using GORM database driver")
-
-	default: // "sqlc" (default)
+	default:
 		pool, err := database.NewPool(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("init db pool: %w", err)
-		}
+		if err != nil { return nil, fmt.Errorf("init db pool: %w", err) }
 		a.pool = pool
 		a.store = database.NewStore(pool)
 		a.queries = db.New(pool)
-		logger.Info("using SQLC database driver")
 	}
 
-	// Auth
-	authProvider, err := auth.NewProvider(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("init auth: %w", err)
+	if cfg.RedisURL != "" {
+		rdb, err := database.NewRedis(ctx, cfg, logger)
+		if err != nil { return nil, fmt.Errorf("init redis: %w", err) }
+		a.Redis = rdb
 	}
+
+	authProvider, err := auth.NewProvider(cfg)
+	if err != nil { return nil, fmt.Errorf("init auth: %w", err) }
 	a.authProvider = authProvider
+
+	a.Workers = async.NewWorkerPool(cfg.WorkerCount, cfg.WorkerQueueSize, logger)
+
+	services, err := initServices(ctx, cfg, logger)
+	if err != nil { return nil, fmt.Errorf("init services: %w", err) }
+	a.Services = services
 
 	a.setupRouter()
 	return a, nil
 }
 
 func (a *App) setupRouter() {
-	if a.cfg.ServerMode == "release" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	if a.cfg.ServerMode == "release" { gin.SetMode(gin.ReleaseMode) }
 
 	r := gin.New()
-	r.Use(
-		middleware.Recovery(a.logger),
-		middleware.RequestLogger(a.logger),
-		middleware.CORS("*"),
-	)
+	r.Use(middleware.Recovery(a.logger), middleware.RequestLogger(a.logger), middleware.CORS("*"))
+	if a.cfg.ServerMode != "release" { r.Use(middleware.ResponseAudit(a.logger)) }
 
 	api := r.Group("/api/v1")
-
-	api.GET("/healthz", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
+	api.GET("/healthz", func(ctx *gin.Context) { ctx.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	api.GET("/readyz", a.ReadinessHandler())
 	a.registerModules(api)
 
-	// Swagger UI
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	r.NoRoute(func(ctx *gin.Context) {
-		ctx.JSON(http.StatusNotFound, gin.H{
-			"error":             404,
-			"error_description": "Route not found",
-		})
-	})
-
+	r.NoRoute(func(ctx *gin.Context) { apperror.Respond(ctx, apperror.ErrRouteNotFound) })
 	a.router = r
 }
 
 func (a *App) registerModules(api *gin.RouterGroup) {
-	// User module — repository selection based on DB_DRIVER
+	// User module — uses original Handler/RegisterRoutes API (to be migrated to Controller/NewRoutes)
 	var userRepo usermodule.Repository
 	switch a.cfg.DBDriver {
-	case "gorm":
-		userRepo = usermodule.NewGORMRepository(a.gormDB)
-	default:
-		userRepo = usermodule.NewSQLCRepository(a.queries)
+	case "gorm":  userRepo = usermodule.NewGORMRepository(a.gormDB)
+	default:      userRepo = usermodule.NewSQLCRepository(a.queries)
 	}
-
 	userSvc := usermodule.NewService(userRepo, a.logger)
 	userHandler := usermodule.NewHandler(userSvc, a.logger)
 	usermodule.RegisterRoutes(api, userHandler, a.authProvider)
-
-	// Add more modules following the same pattern:
-	// var fooRepo foo.Repository
-	// switch a.cfg.DBDriver {
-	// case "gorm":
-	//     fooRepo = foo.NewGORMRepository(a.gormDB)
-	// default:
-	//     fooRepo = foo.NewSQLCRepository(a.queries)
-	// }
-	// fooSvc := foo.NewService(fooRepo, a.logger)
-	// fooH   := foo.NewHandler(fooSvc, a.logger)
-	// foo.RegisterRoutes(api, fooH, a.authProvider)
 }
 
-// Run starts the HTTP server.
-func (a *App) Run() error {
-	addr := fmt.Sprintf(":%d", a.cfg.ServerPort)
-	a.logger.Info("starting server", zap.String("addr", addr))
-	return a.router.Run(addr)
+func (a *App) Run(ctx context.Context) error {
+	a.server = &http.Server{Addr: fmt.Sprintf(":%d", a.cfg.ServerPort), Handler: a.router, ReadHeaderTimeout: 10 * time.Second}
+	errCh := make(chan error, 1)
+	go func() {
+		a.logger.Info("starting server", zap.String("addr", a.server.Addr))
+		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed { errCh <- err }
+		close(errCh)
+	}()
+	select {
+	case err := <-errCh: return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return a.server.Shutdown(shutdownCtx)
+	}
 }
 
-// Shutdown cleanly releases resources.
+type DBPinger interface { Ping(ctx context.Context) error }
+
+func (a *App) ReadinessHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var p DBPinger
+		if a.pool != nil { p = a.pool } else if a.gormDB != nil { p = &gormPinger{a.gormDB} }
+		ReadinessCheck(c, p, a.Redis)
+	}
+}
+
+func ReadinessCheck(c *gin.Context, dbPinger DBPinger, rdb *redis.Client) {
+	ctx := c.Request.Context()
+	checks := gin.H{}
+	ready := true
+	if dbPinger == nil { checks["database"] = "skipped"
+	} else if err := dbPinger.Ping(ctx); err != nil { checks["database"] = "failed: " + err.Error(); ready = false
+	} else { checks["database"] = "ok" }
+	if rdb == nil { checks["redis"] = "skipped"
+	} else if err := rdb.Ping(ctx).Err(); err != nil { checks["redis"] = "failed: " + err.Error(); ready = false
+	} else { checks["redis"] = "ok" }
+	status := http.StatusOK; if !ready { status = http.StatusServiceUnavailable }
+	statusText := "ready"; if !ready { statusText = "not_ready" }
+	c.JSON(status, gin.H{"status": statusText, "checks": checks})
+}
+
+type gormPinger struct{ db *gorm.DB }
+func (g *gormPinger) Ping(ctx context.Context) error { s, err := g.db.DB(); if err != nil { return err }; return s.PingContext(ctx) }
+
 func (a *App) Shutdown() {
 	a.logger.Info("shutting down")
-	if a.pool != nil {
-		a.pool.Close()
-	}
-	if a.gormDB != nil {
-		if sqlDB, err := a.gormDB.DB(); err == nil {
-			sqlDB.Close()
-		}
-	}
+	if a.Workers != nil { a.Workers.Shutdown() }
+	if a.Services != nil { a.Services.shutdown(a.logger) }
+	if a.Redis != nil { a.Redis.Close() }
+	if a.pool != nil { a.pool.Close() }
+	if a.gormDB != nil { if s, err := a.gormDB.DB(); err == nil { s.Close() } }
 	_ = a.logger.Sync()
 }

@@ -38,7 +38,7 @@ func TestRecovery_CatchesPanic(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "internal_error")
+	assert.Contains(t, w.Body.String(), "Internal server error")
 }
 
 // --- CORS middleware ---

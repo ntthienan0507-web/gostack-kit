@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: myapp
+
+commonLabels:
+  app.kubernetes.io/environment: staging
+
+patches:
+  # 2 replicas (same as base)
+  - target:
+      kind: Deployment
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # Staging ingress with TLS
+  - target:
+      kind: Ingress
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.staging.example.com
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - api.staging.example.com
+            secretName: staging-tls-cert
+      - op: add
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-staging
+
+configMapGenerator:
+  - name: go-api-template-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=info
+      - TRACING_SAMPLER=0.5

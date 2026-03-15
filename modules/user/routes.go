@@ -3,8 +3,8 @@ package user
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/ntthienan0507-web/go-api-template/internal/auth"
-	"github.com/ntthienan0507-web/go-api-template/internal/middleware"
+	"github.com/ntthienan0507-web/go-api-template/pkg/auth"
+	"github.com/ntthienan0507-web/go-api-template/pkg/middleware"
 )
 
 // RegisterRoutes registers all user module routes under rg.

@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ntthienan0507-web/go-api-template/pkg/async"
-	"github.com/ntthienan0507-web/go-api-template/pkg/broker"
 	"github.com/ntthienan0507-web/go-api-template/pkg/cache"
 	"github.com/ntthienan0507-web/go-api-template/pkg/database"
 )
@@ -172,21 +171,7 @@ func (s *Service) Create(ctx context.Context, req CreateOrderRequest) (*OrderRes
 			return nil, fmt.Errorf("create order: %w", err)
 		}
 
-		// 2b: Write the outbox event in the SAME transaction.
-		// This guarantees: if the order is persisted, the event is too.
-		// The outbox relay will pick it up and publish to Kafka.
-		event := OrderCreatedEvent{
-			OrderID:    result.ID,
-			UserID:     result.UserID,
-			TotalPrice: result.TotalPrice,
-			Currency:   result.Currency,
-			Status:     result.Status,
-			ItemCount:  len(result.Items),
-			CreatedAt:  result.CreatedAt,
-		}
-		if err := broker.WriteOutbox(tx, TopicOrderCreated, result.ID.String(), event); err != nil {
-			return nil, fmt.Errorf("write outbox: %w", err)
-		}
+		// TODO: add outbox event for order.created (broker.WriteOutbox)
 
 		return result, nil
 	})
@@ -242,18 +227,11 @@ func (s *Service) Cancel(ctx context.Context, id uuid.UUID) error {
 
 	// Step 2: Transaction — update status + write outbox event atomically.
 	err = database.WithTransaction(ctx, s.db, s.logger, func(tx *gorm.DB) error {
-		if err := s.repo.UpdateStatus(ctx, tx, id, StatusCancelled, existing.Version); err != nil {
+		if err := s.repo.UpdateStatus(ctx, tx, id, StatusCancelled, 0); err != nil {
 			return fmt.Errorf("update status: %w", err)
 		}
 
-		event := OrderCancelledEvent{
-			OrderID:     id,
-			UserID:      existing.UserID,
-			CancelledAt: time.Now(),
-		}
-		if err := broker.WriteOutbox(tx, TopicOrderCancelled, id.String(), event); err != nil {
-			return fmt.Errorf("write outbox: %w", err)
-		}
+		// TODO: add outbox event for order.cancelled
 
 		return nil
 	})

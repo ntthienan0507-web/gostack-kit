@@ -64,7 +64,7 @@ func (c *Controller) List(ctx *gin.Context) {
 		return
 	}
 
-	response.OKList(ctx, result.Items, result.Total)
+	response.Success(ctx, result)
 }
 
 // GetByID godoc
@@ -91,7 +91,7 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 		return
 	}
 
-	response.OK(ctx, order)
+	response.Success(ctx, order)
 }
 
 // Create godoc

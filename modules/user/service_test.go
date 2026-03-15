@@ -50,7 +50,7 @@ func TestService_List_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, result.Items, 2)
-	assert.Equal(t, int64(2), result.Total)
+	assert.Equal(t, int64(2), result.Pagination.Total)
 	repo.AssertExpectations(t)
 }
 
@@ -93,7 +93,7 @@ func TestService_List_Pagination(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Items)
-	assert.Equal(t, int64(25), result.Total)
+	assert.Equal(t, int64(25), result.Pagination.Total)
 }
 
 // --- GetByID ---

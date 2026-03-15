@@ -46,7 +46,7 @@ func TestReadinessCheck_Healthy(t *testing.T) {
 
 	checks := body["checks"].(map[string]any)
 	assert.Equal(t, "ok", checks["database"])
-	assert.Equal(t, "skipped: not configured", checks["redis"])
+	assert.Equal(t, "skipped", checks["redis"])
 }
 
 func TestReadinessCheck_Unhealthy(t *testing.T) {
@@ -81,6 +81,6 @@ func TestReadinessCheck_NoDB(t *testing.T) {
 	assert.Equal(t, "ready", body["status"])
 
 	checks := body["checks"].(map[string]any)
-	assert.Equal(t, "skipped: not configured", checks["database"])
-	assert.Equal(t, "skipped: not configured", checks["redis"])
+	assert.Equal(t, "skipped", checks["database"])
+	assert.Equal(t, "skipped", checks["redis"])
 }

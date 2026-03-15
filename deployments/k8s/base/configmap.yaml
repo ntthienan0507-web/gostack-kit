@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: go-api-template-config
+  namespace: myapp
+data:
+  SERVER_MODE: "release"
+  SERVER_PORT: "8080"
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "info"
+  METRICS_PORT: "9090"
+  TRACING_ENABLED: "true"
+  TRACING_SAMPLER: "0.1"

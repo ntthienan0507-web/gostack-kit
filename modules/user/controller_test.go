@@ -24,7 +24,7 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-func setupRouter(ctrl *Controller) *gin.Engine {
+func setupRouter(ctrl *Handler) *gin.Engine {
 	r := gin.New()
 	g := r.Group("/api/v1")
 	{
@@ -37,11 +37,11 @@ func setupRouter(ctrl *Controller) *gin.Engine {
 	return r
 }
 
-func newTestController() (*Controller, *MockRepository) {
+func newTestController() (*Handler, *MockRepository) {
 	repo := new(MockRepository)
 	logger := zap.NewNop()
 	svc := NewService(repo, logger)
-	ctrl := NewController(svc, logger)
+	ctrl := NewHandler(svc, logger)
 	return ctrl, repo
 }
 

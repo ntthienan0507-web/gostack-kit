@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: myapp
+
+commonLabels:
+  app.kubernetes.io/environment: dev
+
+patches:
+  # Scale down to 1 replica
+  - target:
+      kind: Deployment
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+  # Dev ingress host
+  - target:
+      kind: Ingress
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.dev.example.com
+
+  # Disable HPA in dev
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: go-api-template
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2
+
+configMapGenerator:
+  - name: go-api-template-config
+    behavior: merge
+    literals:
+      - SERVER_MODE=debug
+      - LOG_LEVEL=debug
+      - TRACING_SAMPLER=1.0
