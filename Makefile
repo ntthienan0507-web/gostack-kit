@@ -67,6 +67,9 @@ db-shell: ## Open psql shell
 # Code Generation
 # ============================================
 
+proto: ## Generate protobuf Go code (requires buf CLI)
+	cd proto && buf generate
+
 sqlc: ## Generate SQLC code from queries
 	sqlc generate
 

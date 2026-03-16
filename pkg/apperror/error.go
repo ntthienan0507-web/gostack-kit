@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -18,7 +17,7 @@ import (
 type AppError struct {
 	Code    int    `json:"error_code"`
 	Message string `json:"error_message"`
-	Detail  string `json:"error_detail"`
+	Detail  string `json:"error_detail,omitempty"`
 }
 
 // Error implements the error interface.
@@ -37,14 +36,10 @@ func (e *AppError) WithDetail(detail string) *AppError {
 	return &AppError{Code: e.Code, Message: e.Message, Detail: detail}
 }
 
-// Abort writes the AppError as JSON and aborts the gin chain.
-func Abort(ctx *gin.Context, err *AppError) {
-	ctx.AbortWithStatusJSON(err.Code, err)
-}
-
-// Respond writes the AppError as JSON without aborting.
-func Respond(ctx *gin.Context, err *AppError) {
-	ctx.JSON(err.Code, err)
+// Sanitize returns a copy with Detail stripped.
+// Use in production to avoid leaking internal info (SQL errors, file paths, etc.).
+func (e *AppError) Sanitize() *AppError {
+	return &AppError{Code: e.Code, Message: e.Message}
 }
 
 // FromError inspects err and returns a matching AppError.
@@ -86,7 +81,3 @@ func FromError(err error) *AppError {
 	return ErrInternalError
 }
 
-// HandleError is a convenience: converts err via FromError and writes the response.
-func HandleError(ctx *gin.Context, err error) {
-	Respond(ctx, FromError(err))
-}

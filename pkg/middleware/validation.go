@@ -37,7 +37,7 @@ func ValidateJSON(template any) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// No body at all
 		if ctx.Request.Body == nil || ctx.Request.ContentLength == 0 {
-			apperror.Abort(ctx, apperror.ErrBadRequest.WithDetail("Request body is required"))
+			abortWithAppError(ctx, apperror.ErrBadRequest.WithDetail("Request body is required"))
 			return
 		}
 
@@ -47,12 +47,12 @@ func ValidateJSON(template any) gin.HandlerFunc {
 		if err := ctx.ShouldBindJSON(req); err != nil {
 			// Empty body → EOF (e.g. Content-Length > 0 but body is empty)
 			if errors.Is(err, io.EOF) {
-				apperror.Abort(ctx, apperror.ErrBadRequest.WithDetail("Request body is required"))
+				abortWithAppError(ctx, apperror.ErrBadRequest.WithDetail("Request body is required"))
 				return
 			}
 
 			// Validation error (binding tags: required, min, max, email, etc.)
-			apperror.Abort(ctx, apperror.ErrValidationFailed.WithDetail(err.Error()))
+			abortWithAppError(ctx, apperror.ErrValidationFailed.WithDetail(err.Error()))
 			return
 		}
 
@@ -82,7 +82,7 @@ func ValidateQuery(template any) gin.HandlerFunc {
 		req := reflect.New(reqType).Interface()
 
 		if err := ctx.ShouldBindQuery(req); err != nil {
-			apperror.Abort(ctx, apperror.ErrInvalidParams.WithDetail(err.Error()))
+			abortWithAppError(ctx, apperror.ErrInvalidParams.WithDetail(err.Error()))
 			return
 		}
 

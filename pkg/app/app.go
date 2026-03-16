@@ -19,7 +19,9 @@ import (
 	"github.com/ntthienan0507-web/gostack-kit/pkg/auth"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/config"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/database"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/grpcserver"
 	"github.com/ntthienan0507-web/gostack-kit/pkg/middleware"
+	"github.com/ntthienan0507-web/gostack-kit/pkg/response"
 	usermodule "github.com/ntthienan0507-web/gostack-kit/modules/user"
 
 	swaggerFiles "github.com/swaggo/files"
@@ -38,6 +40,7 @@ type App struct {
 	authProvider auth.Provider
 	router       *gin.Engine
 	server       *http.Server
+	grpc         *grpcserver.Server
 	Workers      *async.WorkerPool
 	Services     *Services
 }
@@ -64,7 +67,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 		a.Redis = rdb
 	}
 
-	authProvider, err := auth.NewProvider(cfg)
+	authProvider, err := auth.NewProvider(ctx, cfg)
 	if err != nil { return nil, fmt.Errorf("init auth: %w", err) }
 	a.authProvider = authProvider
 
@@ -75,6 +78,14 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 	a.Services = services
 
 	a.setupRouter()
+
+	if cfg.GRPCEnabled {
+		grpcSrv, err := grpcserver.New(cfg, logger, authProvider)
+		if err != nil { return nil, fmt.Errorf("init grpc: %w", err) }
+		a.grpc = grpcSrv
+		a.registerGRPCServices()
+	}
+
 	return a, nil
 }
 
@@ -91,8 +102,14 @@ func (a *App) setupRouter() {
 	a.registerModules(api)
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	r.NoRoute(func(ctx *gin.Context) { apperror.Respond(ctx, apperror.ErrRouteNotFound) })
+	r.NoRoute(func(ctx *gin.Context) { response.Error(ctx, apperror.ErrRouteNotFound) })
 	a.router = r
+}
+
+func (a *App) registerGRPCServices() {
+	// Register gRPC service implementations here.
+	// Example:
+	//   userpb.RegisterUserServiceServer(a.grpc.GRPCServer, usermodule.NewGRPCHandler(userSvc))
 }
 
 func (a *App) registerModules(api *gin.RouterGroup) {
@@ -130,16 +147,21 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	a.server = &http.Server{Addr: fmt.Sprintf(":%d", a.cfg.ServerPort), Handler: a.router, ReadHeaderTimeout: 10 * time.Second}
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
-		a.logger.Info("starting server", zap.String("addr", a.server.Addr))
+		a.logger.Info("starting http server", zap.String("addr", a.server.Addr))
 		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed { errCh <- err }
-		close(errCh)
 	}()
+	if a.grpc != nil {
+		go func() {
+			if err := a.grpc.Serve(); err != nil { errCh <- err }
+		}()
+	}
 	select {
 	case err := <-errCh: return err
 	case <-ctx.Done():
 		a.logger.Info("shutdown signal received")
+		if a.grpc != nil { a.grpc.GracefulStop() }
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return a.server.Shutdown(shutdownCtx)

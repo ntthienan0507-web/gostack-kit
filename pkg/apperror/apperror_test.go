@@ -1,32 +1,14 @@
 package apperror
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
-func performRequest(handler gin.HandlerFunc) *httptest.ResponseRecorder {
-	r := gin.New()
-	r.GET("/test", handler)
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
-	r.ServeHTTP(w, req)
-	return w
-}
 
 // --- AppError ---
 
@@ -44,43 +26,14 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "User does not exist", err.Detail)
 }
 
-// --- Abort ---
+func TestWithDetail(t *testing.T) {
+	original := New(400, "common.bad_request", "Invalid request")
+	custom := original.WithDetail("Missing field: email")
 
-func TestAbort(t *testing.T) {
-	r := gin.New()
-	r.GET("/test", func(ctx *gin.Context) {
-		Abort(ctx, ErrTokenMissing)
-	}, func(ctx *gin.Context) {
-		// This handler should not be reached
-		ctx.JSON(200, gin.H{"should": "not appear"})
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	var body AppError
-	err := json.Unmarshal(w.Body.Bytes(), &body)
-	require.NoError(t, err)
-	assert.Equal(t, "common.token_missing", body.Message)
-}
-
-// --- Respond ---
-
-func TestRespond(t *testing.T) {
-	w := performRequest(func(ctx *gin.Context) {
-		Respond(ctx, ErrRecordNotFound)
-	})
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-
-	var body AppError
-	err := json.Unmarshal(w.Body.Bytes(), &body)
-	require.NoError(t, err)
-	assert.Equal(t, "common.record_not_found", body.Message)
-	assert.Equal(t, "Record not found", body.Detail)
+	assert.Equal(t, original.Code, custom.Code)
+	assert.Equal(t, original.Message, custom.Message)
+	assert.Equal(t, "Missing field: email", custom.Detail)
+	assert.Equal(t, "Invalid request", original.Detail)
 }
 
 // --- FromError ---
@@ -139,32 +92,6 @@ func TestFromError_UnknownError(t *testing.T) {
 	result := FromError(errors.New("something unexpected"))
 
 	assert.Equal(t, ErrInternalError, result)
-}
-
-// --- HandleError ---
-
-func TestHandleError_PgxNoRows(t *testing.T) {
-	w := performRequest(func(ctx *gin.Context) {
-		HandleError(ctx, pgx.ErrNoRows)
-	})
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestHandleError_UniqueViolation(t *testing.T) {
-	w := performRequest(func(ctx *gin.Context) {
-		HandleError(ctx, &pgconn.PgError{Code: "23505"})
-	})
-
-	assert.Equal(t, http.StatusConflict, w.Code)
-}
-
-func TestHandleError_GenericError(t *testing.T) {
-	w := performRequest(func(ctx *gin.Context) {
-		HandleError(ctx, errors.New("random"))
-	})
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 // --- Common errors ---

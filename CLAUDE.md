@@ -12,7 +12,8 @@ Production Go API template. Clean architecture, multi-DB support, Kafka events, 
 - **Database:** PostgreSQL (SQLC or GORM), MongoDB optional
 - **Cache:** Redis
 - **Events:** Kafka (Sarama) with outbox pattern
-- **Auth:** JWT or Keycloak
+- **Auth:** JWT, Keycloak, OAuth2/OIDC, SAML 2.0
+- **Transport:** HTTP (Gin) + gRPC (optional, `GRPC_ENABLED=true`)
 - **Observability:** Prometheus + Jaeger (OpenTelemetry) + zap logging
 
 ## Architecture Rules — MUST follow
@@ -41,6 +42,7 @@ modules/<name>/
 ├── repository_gorm.go — GORM implementation (gormXxx structs are unexported)
 ├── service.go         — business logic (NO gin.Context, NO HTTP concerns)
 ├── controller.go      — thin: parse request → call service → write response
+├── grpc_handler.go    — gRPC service implementation (optional)
 ├── routes.go          — route registration with auth middleware
 └── *_test.go          — tests (mock at repository level)
 ```
@@ -71,12 +73,12 @@ ctx.JSON(404, gin.H{"error": "not found"})
 func (c *Controller) GetByID(ctx *gin.Context) {
     id, err := uuid.Parse(ctx.Param("id"))
     if err != nil {
-        apperror.Respond(ctx, ErrInvalidID)
+        response.Error(ctx, ErrInvalidID)
         return
     }
     result, err := c.service.GetByID(ctx.Request.Context(), id)
     if err != nil {
-        apperror.HandleError(ctx, err)
+        response.HandleError(ctx, err)
         return
     }
     response.OK(ctx, result)
@@ -189,7 +191,8 @@ fmt.Println("debug:", err)
 | Need | Use | NOT |
 |------|-----|-----|
 | HTTP response | `response.OK()`, `response.Created()` | `ctx.JSON()` directly |
-| Error response | `apperror.HandleError()`, `apperror.Respond()` | `ctx.JSON(500, ...)` |
+| Error response | `response.Error()`, `response.HandleError()` | `ctx.JSON(500, ...)` |
+| gRPC error | `grpcserver.StatusFromError()` | `status.Error()` directly |
 | Transactions | `database.WithTransaction()` | `db.Begin()` manually |
 | Background tasks | `workers.Submit(func(ctx) error { ... })` | `go func() { ... }()` |
 | Parallel calls | `async.Parallel()`, `async.ParallelCollect()` | Manual WaitGroup |
@@ -205,13 +208,14 @@ fmt.Println("debug:", err)
 
 ```
 pkg/app/          — app bootstrap; services_*.go files are optional (deleted by cmd/init)
-pkg/apperror/     — error types + common errors
-pkg/response/     — HTTP response helpers
+pkg/apperror/     — error types + common errors (pure, no gin)
+pkg/response/     — HTTP response helpers (success + error)
+pkg/grpcserver/   — gRPC server, interceptors, error mapping
 pkg/database/     — DB connections, transactions, locks
 pkg/cache/        — Redis client + invalidation
 pkg/broker/       — Kafka producer/consumer/outbox/DLQ
 pkg/types/        — pgtype converters (Set*, Extract*, Coerce*)
-pkg/auth/         — JWT/Keycloak providers
+pkg/auth/         — JWT/Keycloak/OAuth2/SAML providers
 pkg/middleware/    — all HTTP middleware
 pkg/async/        — worker pool, parallel execution
 pkg/httpclient/   — external HTTP calls with retry/circuit breaker

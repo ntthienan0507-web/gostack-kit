@@ -38,7 +38,7 @@ func NewController(service *Service, logger *zap.Logger) *Controller {
 func (c *Controller) List(ctx *gin.Context) {
 	var pParams response.PaginationParams
 	if err := ctx.ShouldBindQuery(&pParams); err != nil {
-		apperror.Respond(ctx, apperror.ErrInvalidParams)
+		response.Error(ctx, apperror.ErrInvalidParams)
 		return
 	}
 	pParams, _, _ = response.NormalizePaginationParams(pParams)
@@ -48,7 +48,7 @@ func (c *Controller) List(ctx *gin.Context) {
 		Status string `form:"status"`
 	}
 	if err := ctx.ShouldBindQuery(&query); err != nil {
-		apperror.Respond(ctx, apperror.ErrValidationFailed)
+		response.Error(ctx, apperror.ErrValidationFailed)
 		return
 	}
 
@@ -60,7 +60,7 @@ func (c *Controller) List(ctx *gin.Context) {
 	})
 	if err != nil {
 		c.logger.Error("list orders", zap.Error(err))
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -81,13 +81,13 @@ func (c *Controller) List(ctx *gin.Context) {
 func (c *Controller) GetByID(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
-		apperror.Respond(ctx, ErrInvalidOrderID)
+		response.Error(ctx, ErrInvalidOrderID)
 		return
 	}
 
 	order, err := c.service.GetByID(ctx.Request.Context(), id)
 	if err != nil {
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -108,14 +108,14 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 func (c *Controller) Create(ctx *gin.Context) {
 	var req CreateOrderRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		apperror.Respond(ctx, apperror.New(400, "common.validation_failed", err.Error()))
+		response.Error(ctx, apperror.New(400, "common.validation_failed", err.Error()))
 		return
 	}
 
 	order, err := c.service.Create(ctx.Request.Context(), req)
 	if err != nil {
 		c.logger.Error("create order", zap.Error(err))
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -136,12 +136,12 @@ func (c *Controller) Create(ctx *gin.Context) {
 func (c *Controller) Cancel(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
-		apperror.Respond(ctx, ErrInvalidOrderID)
+		response.Error(ctx, ErrInvalidOrderID)
 		return
 	}
 
 	if err := c.service.Cancel(ctx.Request.Context(), id); err != nil {
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 

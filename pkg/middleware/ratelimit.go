@@ -59,7 +59,7 @@ func RateLimit(rps int, burst int) gin.HandlerFunc {
 		reservation := entry.limiter.Reserve()
 		if !reservation.OK() {
 			// This should not happen with valid parameters.
-			apperror.Abort(ctx, apperror.ErrRateLimited)
+			abortWithAppError(ctx, apperror.ErrRateLimited)
 			return
 		}
 
@@ -72,7 +72,7 @@ func RateLimit(rps int, burst int) gin.HandlerFunc {
 			ctx.Header("X-RateLimit-Remaining", "0")
 			ctx.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(delay).Unix(), 10))
 			ctx.Header("Retry-After", fmt.Sprintf("%.0f", math.Ceil(retryAfter)))
-			apperror.Abort(ctx, apperror.ErrRateLimited)
+			abortWithAppError(ctx, apperror.ErrRateLimited)
 			return
 		}
 

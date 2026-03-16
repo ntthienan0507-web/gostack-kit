@@ -12,8 +12,9 @@ import (
 // Loaded once at startup, passed via constructors — NO global vars.
 type Config struct {
 	// Server
-	ServerPort int    `mapstructure:"SERVER_PORT"`
-	ServerMode string `mapstructure:"SERVER_MODE"`
+	ServerPort  int    `mapstructure:"SERVER_PORT"`
+	ServerMode  string `mapstructure:"SERVER_MODE"`
+	CORSOrigins string `mapstructure:"CORS_ORIGINS"` // comma-separated allowed origins, "*" for all
 
 	// Database
 	DBDriver   string `mapstructure:"DB_DRIVER"` // "sqlc" | "gorm" | "mongo"
@@ -52,6 +53,23 @@ type Config struct {
 	KeycloakRealm        string `mapstructure:"KEYCLOAK_REALM"`
 	KeycloakClientID     string `mapstructure:"KEYCLOAK_CLIENT_ID"`
 	KeycloakClientSecret string `mapstructure:"KEYCLOAK_CLIENT_SECRET"`
+
+	// OAuth2/OIDC (only when AUTH_PROVIDER=oauth2)
+	OAuth2IssuerURL   string `mapstructure:"OAUTH2_ISSUER_URL"`   // OIDC issuer for discovery
+	OAuth2ClientID    string `mapstructure:"OAUTH2_CLIENT_ID"`
+	OAuth2ClientSecret string `mapstructure:"OAUTH2_CLIENT_SECRET"`
+
+	// SAML 2.0 (only when AUTH_PROVIDER=saml)
+	SAMLSPEntityID       string `mapstructure:"SAML_SP_ENTITY_ID"`       // SP entity ID / audience
+	SAMLSPACS            string `mapstructure:"SAML_SP_ACS_URL"`         // Assertion Consumer Service URL
+	SAMLSPCertFile       string `mapstructure:"SAML_SP_CERT_FILE"`       // SP certificate PEM
+	SAMLSPKeyFile        string `mapstructure:"SAML_SP_KEY_FILE"`        // SP private key PEM
+	SAMLIDPMetadataURL   string `mapstructure:"SAML_IDP_METADATA_URL"`   // IdP metadata URL (auto-fetch)
+	SAMLIDPMetadataFile  string `mapstructure:"SAML_IDP_METADATA_FILE"`  // IdP metadata XML file (offline)
+
+	// gRPC
+	GRPCEnabled bool `mapstructure:"GRPC_ENABLED"`
+	GRPCPort    int  `mapstructure:"GRPC_PORT"`
 
 	// Network
 	OutboundIP string `mapstructure:"OUTBOUND_IP"`
@@ -178,8 +196,41 @@ func (c *Config) Validate() error {
 		if c.KeycloakClientID == "" {
 			fail("KEYCLOAK_CLIENT_ID is required when AUTH_PROVIDER=keycloak")
 		}
+	case "oauth2":
+		if c.OAuth2IssuerURL == "" {
+			fail("OAUTH2_ISSUER_URL is required when AUTH_PROVIDER=oauth2")
+		}
+		if c.OAuth2ClientID == "" {
+			fail("OAUTH2_CLIENT_ID is required when AUTH_PROVIDER=oauth2")
+		}
+	case "saml":
+		if c.SAMLSPEntityID == "" {
+			fail("SAML_SP_ENTITY_ID is required when AUTH_PROVIDER=saml")
+		}
+		if c.SAMLSPACS == "" {
+			fail("SAML_SP_ACS_URL is required when AUTH_PROVIDER=saml")
+		}
+		if c.SAMLSPCertFile == "" {
+			fail("SAML_SP_CERT_FILE is required when AUTH_PROVIDER=saml")
+		}
+		if c.SAMLSPKeyFile == "" {
+			fail("SAML_SP_KEY_FILE is required when AUTH_PROVIDER=saml")
+		}
+		if c.SAMLIDPMetadataURL == "" && c.SAMLIDPMetadataFile == "" {
+			fail("SAML_IDP_METADATA_URL or SAML_IDP_METADATA_FILE is required when AUTH_PROVIDER=saml")
+		}
 	default:
-		fail(fmt.Sprintf("AUTH_PROVIDER=%q: must be jwt or keycloak", c.AuthProvider))
+		fail(fmt.Sprintf("AUTH_PROVIDER=%q: must be jwt, keycloak, oauth2, or saml", c.AuthProvider))
+	}
+
+	// gRPC
+	if c.GRPCEnabled {
+		if c.GRPCPort < 1 || c.GRPCPort > 65535 {
+			fail(fmt.Sprintf("GRPC_PORT=%d: must be 1–65535", c.GRPCPort))
+		}
+		if c.GRPCPort == c.ServerPort {
+			fail(fmt.Sprintf("GRPC_PORT=%d: must differ from SERVER_PORT=%d", c.GRPCPort, c.ServerPort))
+		}
 	}
 
 	// Redis
@@ -288,6 +339,7 @@ func Load(path string) (*Config, error) {
 
 	v.SetDefault("SERVER_PORT", 8080)
 	v.SetDefault("SERVER_MODE", "debug")
+	v.SetDefault("CORS_ORIGINS", "*")
 	v.SetDefault("DB_DRIVER", "sqlc")
 	v.SetDefault("DB_SSL_MODE", "disable")
 	v.SetDefault("DB_MAX_CONNS", 10)
@@ -299,6 +351,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("AUTH_PROVIDER", "jwt")
 	v.SetDefault("JWT_EXPIRY", "24h")
 	v.SetDefault("JWT_ALGORITHM", "HS256")
+	v.SetDefault("GRPC_ENABLED", false)
+	v.SetDefault("GRPC_PORT", 9090)
 	v.SetDefault("SENDGRID_URL", "https://api.sendgrid.com")
 	v.SetDefault("STRIPE_URL", "https://api.stripe.com")
 	v.SetDefault("KAFKA_BROKERS", "localhost:9092")

@@ -82,7 +82,7 @@ func TestAudit_ValidAppError_NoWarning(t *testing.T) {
 	logger, logs := newObservedLogger()
 
 	r := auditRouter(logger, func(ctx *gin.Context) {
-		apperror.Respond(ctx, apperror.ErrRecordNotFound)
+		response.Error(ctx, apperror.ErrRecordNotFound)
 	})
 
 	w := doGet(r)

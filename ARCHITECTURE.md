@@ -29,7 +29,7 @@ go-api-template/
 │   ├── app/                         # DI container + service registry + server lifecycle
 │   ├── apperror/                    # Structured error handling (i18n-ready keys)
 │   ├── async/                       # Worker pool + parallel execution + context safety
-│   ├── auth/                        # Authentication providers (JWT, Keycloak)
+│   ├── auth/                        # Authentication providers (JWT, Keycloak, OAuth2, SAML)
 │   ├── broker/                      # Kafka producer/consumer + outbox + dispatcher + batcher
 │   ├── cache/                       # Redis cache abstraction
 │   ├── circuitbreaker/              # Circuit breaker (optional, disabled by default)
@@ -46,8 +46,9 @@ go-api-template/
 │   ├── httpclient/                  # Base HTTP client (TLS, retry, codec, token mgmt)
 │   ├── logger/                      # Structured logging (Zap)
 │   ├── metrics/                     # Prometheus metrics
+│   ├── grpcserver/                   # gRPC server, interceptors, error mapping
 │   ├── middleware/                   # HTTP middleware (auth, validation, CORS, audit)
-│   ├── response/                    # Typed generic JSON responses
+│   ├── response/                    # HTTP response helpers (success + error)
 │   ├── retry/                       # Exponential backoff + jitter
 │   ├── tracing/                     # OpenTelemetry distributed tracing
 │   └── ws/                          # WebSocket (hub, rooms, message routing)
@@ -132,15 +133,19 @@ Pluggable auth via `AUTH_PROVIDER` env var.
 |----------|------|
 | `jwt` | Self-hosted JWT signing/validation (default) |
 | `keycloak` | Keycloak/OIDC token validation |
+| `oauth2` | Generic OAuth2/OIDC (Google, Azure AD, Okta, Auth0) |
+| `saml` | SAML 2.0 SP — enterprise SSO (ADFS, Okta, OneLogin) |
 
 ---
 
-### `pkg/apperror` — Structured Error Handling
+### `pkg/apperror` — Structured Error Handling (pure, no gin)
 
 All errors follow:
 ```json
 {"error_code": 404, "error_message": "user.not_found", "error_detail": "User with the given ID does not exist"}
 ```
+
+In release mode, `error_detail` is stripped to prevent leaking internal info (SQL errors, file paths).
 
 - `error_message`: snake_case key, namespaced by module — clients use for i18n
 - `common.go`: shared errors (auth, validation, 500) — **locked, don't add module errors here**
@@ -149,27 +154,36 @@ All errors follow:
 **Key functions:**
 | Function | Use |
 |----------|-----|
-| `apperror.Respond(ctx, err)` | Write error response |
-| `apperror.Abort(ctx, err)` | Write + abort middleware chain |
-| `apperror.HandleError(ctx, err)` | Auto-convert any error → AppError → response |
+| `apperror.New(code, message, detail)` | Create an AppError |
+| `apperror.FromError(err)` | Convert any error → AppError (pgx, mongo, etc.) |
 | `err.WithDetail(detail)` | Copy error with custom detail |
+| `err.Sanitize()` | Copy error with detail stripped (used in production) |
+
+> `apperror` is transport-agnostic — no gin dependency. HTTP and gRPC layers handle response writing.
 
 ---
 
-### `pkg/response` — Success Responses
+### `pkg/response` — HTTP Response Helpers
 
-All success responses follow:
+**Success responses:**
 ```json
 {"status": "success", "data": {...}}
 {"status": "success", "data": {"items": [...], "total": 10}}
 ```
 
-Generic typed helpers — no `interface{}`:
+**Error responses:** delegates to `apperror.AppError` struct, auto-sanitizes in release mode.
+
 ```go
+// Success
 response.OK(ctx, user)              // 200 + typed
 response.OKList(ctx, users, total)  // 200 + list
 response.Created(ctx, user)         // 201 + typed
 response.NoContent(ctx)             // 204
+
+// Error (gin-specific, in response/error.go)
+response.Error(ctx, apperror.ErrNotFound)    // write AppError as JSON
+response.Abort(ctx, apperror.ErrTokenMissing) // write + abort chain
+response.HandleError(ctx, err)                // auto-convert → AppError → JSON
 ```
 
 ---
@@ -185,6 +199,40 @@ response.NoContent(ctx)             // 204
 | `RequireRole` | Check user role (admin, user, etc.) |
 | `ResponseAudit` | **Debug only** — warn when response bypasses standard format |
 | `Metrics` | Prometheus request metrics |
+| `RateLimit` | Token bucket per-IP (in-memory or Redis) |
+| `Timeout` | Per-route request deadline |
+| `ValidateJSON` | Validate request body + store in context |
+| `MaxBodySize` | Upload size limit |
+| `AllowedFileTypes` | MIME type validation |
+
+> Middleware uses `abortWithAppError()` internally — does NOT depend on `pkg/response`.
+
+---
+
+### `pkg/grpcserver` — gRPC Server Infrastructure
+
+Runs alongside HTTP on a separate port (`GRPC_PORT`, default 9090).
+
+| File | What |
+|------|------|
+| `server.go` | Server factory with health check + reflection (debug mode) |
+| `interceptors.go` | Unary + Stream: Recovery, Logging, Auth, RequireRole |
+| `errors.go` | `StatusFromError()` — maps AppError → gRPC status codes |
+
+```go
+// gRPC handler extracts claims the same way
+claims, ok := grpcserver.ClaimsFromContext(ctx)
+```
+
+**HTTP ↔ gRPC share the same service layer:**
+```
+HTTP :8080                          gRPC :9090
+  │                                    │
+  ├─ Gin middleware                     ├─ Unary/Stream interceptors
+  ├─ controller.go ─┐                  ├─ grpc_handler.go ─┐
+  │                  ├──→ service.go   │                    ├──→ service.go
+  │                  │   (shared!)     │                    │   (shared!)
+```
 
 ---
 
@@ -496,6 +544,7 @@ modules/<module>/
   repository_*.go    # Implementations (sqlc, gorm, mongo)
   service.go         # Business logic
   controller.go      # HTTP handlers
+  grpc_handler.go    # gRPC service implementation (optional)
   routes.go          # Route registration
   errors.go          # <module>.* AppError codes
   events.go          # Kafka topic registration + event structs
@@ -515,17 +564,20 @@ pkg/external/<service>/
 ## Request Flow
 
 ```
-HTTP Request
-     │
-  Middleware (recovery → metrics → logger → CORS → auth → audit)
-     │
-  Controller (parse request, validate)
-     │
-  Service (business logic, transactions, outbox events)
-     │
-  Repository (data access — SQLC/GORM/Mongo)
-     │
-  Database
+HTTP Request                              gRPC Request
+     │                                         │
+  Middleware (recovery → logger → CORS          Interceptors (recovery → logger
+     → auth → audit)                              → auth)
+     │                                         │
+  Controller (parse → call service)       gRPC Handler (parse → call service)
+     │                                         │
+     └───────────────┬─────────────────────────┘
+                     │
+              Service (business logic, transactions, outbox events)
+                     │
+              Repository (data access — SQLC/GORM/Mongo)
+                     │
+                  Database
 ```
 
 ## Event Flow (Kafka)
@@ -551,6 +603,7 @@ Kafka Consumer (background goroutine)
 
 ```
 SIGTERM
+  → grpc.GracefulStop()   — drain active RPCs
   → server.Shutdown()     — drain HTTP connections (15s)
   → batchers.Shutdown()   — flush partial batches
   → dispatcher.Shutdown() — drain in-flight messages

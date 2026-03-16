@@ -16,17 +16,26 @@ All errors return this JSON structure:
 |-------|------|-------------|
 | `error_code` | `int` | HTTP status code |
 | `error_message` | `string` | Snake_case key, namespaced by module. Clients use this for i18n translation |
-| `error_detail` | `string` | Human-readable description for debugging |
+| `error_detail` | `string` | Human-readable description for debugging. **Stripped in release mode** |
 
 ## Architecture
 
 ```
-pkg/apperror/
-  error.go       # AppError type, Abort(), Respond(), HandleError(), FromError()
-  common.go      # Shared errors: common.* namespace (auth, validation, 500)
+pkg/apperror/              ← Pure error types (no gin, no HTTP framework)
+  error.go                 # AppError, New(), FromError(), Sanitize()
+  common.go                # Shared errors: common.* namespace
+
+pkg/response/              ← HTTP error response (gin-specific)
+  error.go                 # Error(), Abort(), HandleError()
+
+pkg/grpcserver/            ← gRPC error response
+  errors.go                # StatusFromError() — AppError → gRPC status
+
+pkg/middleware/            ← Middleware error handling
+  error.go                 # abortWithAppError() — direct abort, no response dependency
 
 modules/<module>/
-  errors.go      # Module-specific errors: <module>.* namespace
+  errors.go                # Module-specific errors: <module>.* namespace
 ```
 
 **Rule:** `common.go` is locked — only infrastructure errors live here (auth, validation, DB).
@@ -45,31 +54,26 @@ import (
     "github.com/ntthienan0507-web/gostack-kit/pkg/apperror"
 )
 
-// Order module error codes.
-// Namespace: "order.*"
 var (
     ErrOrderNotFound     = apperror.New(http.StatusNotFound, "order.not_found", "Order does not exist")
     ErrOrderAlreadyPaid  = apperror.New(http.StatusConflict, "order.already_paid", "Order has already been paid")
     ErrInvalidOrderID    = apperror.New(http.StatusBadRequest, "order.invalid_id", "Invalid order ID format")
-    ErrInsufficientStock = apperror.New(http.StatusUnprocessableEntity, "order.insufficient_stock", "Not enough stock to fulfill order")
 )
 ```
 
-### 2. Use in Controller
+### 2. Use in HTTP Controller
 
 ```go
 func (c *Controller) GetByID(ctx *gin.Context) {
     id, err := uuid.Parse(ctx.Param("id"))
     if err != nil {
-        // Module-specific error
-        apperror.Respond(ctx, ErrInvalidOrderID)
+        response.Error(ctx, ErrInvalidOrderID)
         return
     }
 
     order, err := c.service.GetByID(ctx.Request.Context(), id)
     if err != nil {
-        // Auto-maps: *AppError pass-through, pgx/mongo → common errors, unknown → 500
-        apperror.HandleError(ctx, err)
+        response.HandleError(ctx, err)
         return
     }
 
@@ -77,7 +81,19 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 }
 ```
 
-### 3. Use in Service (return AppError directly)
+### 3. Use in gRPC Handler
+
+```go
+func (h *GRPCHandler) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.GetOrderResponse, error) {
+    order, err := h.service.GetByID(ctx, id)
+    if err != nil {
+        return nil, grpcserver.StatusFromError(err, isRelease)
+    }
+    return toProto(order), nil
+}
+```
+
+### 4. Use in Service (return AppError directly)
 
 ```go
 func (s *Service) Pay(ctx context.Context, id uuid.UUID) error {
@@ -85,71 +101,74 @@ func (s *Service) Pay(ctx context.Context, id uuid.UUID) error {
     if err != nil {
         return ErrOrderNotFound
     }
-
     if order.Status == "paid" {
         return ErrOrderAlreadyPaid
     }
-
     return s.repo.UpdateStatus(ctx, id, "paid")
 }
 ```
 
-### 4. Override Detail with Context
+### 5. Override Detail with Context
 
 ```go
-// Reuse the error key but add specific detail
 return ErrInsufficientStock.WithDetail(
     fmt.Sprintf("Requested %d but only %d available", requested, available),
 )
-// → { "error_code": 422, "error_message": "order.insufficient_stock", "error_detail": "Requested 5 but only 2 available" }
 ```
 
 ## API Reference
 
+### `pkg/apperror` (transport-agnostic)
+
 | Function | Usage |
 |----------|-------|
 | `apperror.New(code, message, detail)` | Create a new AppError |
-| `apperror.Respond(ctx, err)` | Write AppError as JSON response |
-| `apperror.Abort(ctx, err)` | Write AppError + abort middleware chain (use in middleware) |
-| `apperror.HandleError(ctx, err)` | Auto-convert any error → AppError → JSON response |
-| `apperror.FromError(err)` | Convert any error → AppError (without writing response) |
+| `apperror.FromError(err)` | Convert any error → AppError (pgx, mongo, etc.) |
 | `err.WithDetail(detail)` | Copy error with custom detail message |
+| `err.Sanitize()` | Copy error with detail stripped (production) |
+
+### `pkg/response` (HTTP/gin)
+
+| Function | Usage |
+|----------|-------|
+| `response.Error(ctx, appErr)` | Write AppError as JSON |
+| `response.Abort(ctx, appErr)` | Write + abort middleware chain |
+| `response.HandleError(ctx, err)` | Auto-convert any error → AppError → JSON |
+
+### `pkg/grpcserver` (gRPC)
+
+| Function | Usage |
+|----------|-------|
+| `grpcserver.StatusFromError(err, sanitize)` | Convert error → gRPC status code |
 
 ## Error Flow
 
 ```
-Controller                          Service / Repository
-    │                                       │
-    │  ← return ErrOrderNotFound ───────────┘  (module-specific AppError)
-    │  ← return pgx.ErrNoRows ─────────────┘  (raw DB error)
-    │  ← return fmt.Errorf("wrap: %w", err) ┘  (wrapped error)
-    │
-    ├─ apperror.HandleError(ctx, err)
-    │       │
-    │       └─ FromError(err)
-    │              ├─ *AppError?     → return as-is
-    │              ├─ pgx.ErrNoRows? → common.record_not_found
-    │              ├─ pgconn 23505?  → common.record_already_exists
-    │              ├─ mongo dup key? → common.record_already_exists
-    │              └─ unknown?       → common.internal_error
-    │
-    └─ JSON response written
+HTTP Controller                     gRPC Handler
+    │                                    │
+    │  ← return ErrOrderNotFound ────────┘  (module AppError)
+    │  ← return pgx.ErrNoRows ──────────┘  (raw DB error)
+    │                                    │
+    ├─ response.HandleError(ctx, err)    ├─ grpcserver.StatusFromError(err, sanitize)
+    │       │                            │       │
+    │       └─ apperror.FromError(err)   │       └─ apperror.FromError(err)
+    │              ├─ *AppError → as-is  │              ├─ *AppError → gRPC code
+    │              ├─ pgx.ErrNoRows → 404│              ├─ pgx.ErrNoRows → NotFound
+    │              └─ unknown → 500      │              └─ unknown → Internal
+    │                                    │
+    └─ JSON response                     └─ gRPC status
 ```
 
-## Naming Convention
+## Detail Sanitization
+
+In **release mode**, `error_detail` is stripped from responses to prevent leaking internal info:
 
 ```
-<module>.<action_or_entity>_<reason>
+Debug mode:   {"error_code": 500, "error_message": "common.internal_error", "error_detail": "pq: relation \"users\" does not exist"}
+Release mode: {"error_code": 500, "error_message": "common.internal_error"}
 ```
 
-Examples:
-- `user.not_found`
-- `user.already_exists`
-- `user.invalid_id`
-- `order.insufficient_stock`
-- `payment.card_declined`
-- `common.token_invalid`
-- `common.forbidden`
+This applies automatically via `response.Error/Abort/HandleError` (HTTP) and `grpcserver.StatusFromError(err, true)` (gRPC).
 
 ## Common Errors (DO NOT add module-specific errors here)
 
@@ -166,5 +185,7 @@ Examples:
 | `common.record_not_found` | 404 | Generic DB record not found |
 | `common.route_not_found` | 404 | No matching route |
 | `common.record_already_exists` | 409 | DB unique violation |
+| `common.stale_version` | 409 | Optimistic lock conflict |
 | `common.related_record_not_found` | 422 | DB foreign key violation |
+| `common.rate_limited` | 429 | Too many requests |
 | `common.internal_error` | 500 | Fallback for unknown errors |

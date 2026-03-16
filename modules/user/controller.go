@@ -21,7 +21,7 @@ func NewController(service *Service, logger *zap.Logger) *Controller {
 func (c *Controller) List(ctx *gin.Context) {
 	var pParams response.PaginationParams
 	if err := ctx.ShouldBindQuery(&pParams); err != nil {
-		apperror.Respond(ctx, apperror.ErrInvalidParams)
+		response.Error(ctx, apperror.ErrInvalidParams)
 		return
 	}
 	pParams, _, _ = response.NormalizePaginationParams(pParams)
@@ -31,7 +31,7 @@ func (c *Controller) List(ctx *gin.Context) {
 		Role   string `form:"role"`
 	}
 	if err := ctx.ShouldBindQuery(&query); err != nil {
-		apperror.Respond(ctx, apperror.ErrValidationFailed)
+		response.Error(ctx, apperror.ErrValidationFailed)
 		return
 	}
 
@@ -43,7 +43,7 @@ func (c *Controller) List(ctx *gin.Context) {
 	})
 	if err != nil {
 		c.logger.Error("list users", zap.Error(err))
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -53,13 +53,13 @@ func (c *Controller) List(ctx *gin.Context) {
 func (c *Controller) GetByID(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
-		apperror.Respond(ctx, ErrInvalidUserID)
+		response.Error(ctx, ErrInvalidUserID)
 		return
 	}
 
 	user, err := c.service.GetByID(ctx.Request.Context(), id)
 	if err != nil {
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -69,14 +69,14 @@ func (c *Controller) GetByID(ctx *gin.Context) {
 func (c *Controller) Create(ctx *gin.Context) {
 	var req CreateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		apperror.Respond(ctx, apperror.New(400, "common.validation_failed", err.Error()))
+		response.Error(ctx, apperror.New(400, "common.validation_failed", err.Error()))
 		return
 	}
 
 	user, err := c.service.Create(ctx.Request.Context(), req)
 	if err != nil {
 		c.logger.Error("create user", zap.Error(err))
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -86,19 +86,19 @@ func (c *Controller) Create(ctx *gin.Context) {
 func (c *Controller) Update(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
-		apperror.Respond(ctx, ErrInvalidUserID)
+		response.Error(ctx, ErrInvalidUserID)
 		return
 	}
 
 	var req UpdateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		apperror.Respond(ctx, apperror.New(400, "common.validation_failed", err.Error()))
+		response.Error(ctx, apperror.New(400, "common.validation_failed", err.Error()))
 		return
 	}
 
 	user, err := c.service.Update(ctx.Request.Context(), id, req)
 	if err != nil {
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 
@@ -108,12 +108,12 @@ func (c *Controller) Update(ctx *gin.Context) {
 func (c *Controller) Delete(ctx *gin.Context) {
 	id, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {
-		apperror.Respond(ctx, ErrInvalidUserID)
+		response.Error(ctx, ErrInvalidUserID)
 		return
 	}
 
 	if err := c.service.Delete(ctx.Request.Context(), id); err != nil {
-		apperror.HandleError(ctx, err)
+		response.HandleError(ctx, err)
 		return
 	}
 

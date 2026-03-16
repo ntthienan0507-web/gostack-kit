@@ -63,7 +63,7 @@ func ResponseAudit(logger *zap.Logger) gin.HandlerFunc {
 			zap.String("path", ctx.Request.URL.Path),
 			zap.Int("status", status),
 			zap.String("body", truncate(string(body), 300)),
-			zap.String("hint", "use response.OK/Created/OKList or apperror.Respond/HandleError"),
+			zap.String("hint", "use response.OK/Created/OKList or response.Error/HandleError"),
 		)
 	}
 }

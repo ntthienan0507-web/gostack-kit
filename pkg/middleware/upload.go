@@ -50,7 +50,7 @@ func AllowedFileTypes(types ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		form, err := c.MultipartForm()
 		if err != nil {
-			apperror.Abort(c, apperror.ErrBadRequest.WithDetail("Failed to parse multipart form"))
+			abortWithAppError(c, apperror.ErrBadRequest.WithDetail("Failed to parse multipart form"))
 			return
 		}
 
@@ -58,7 +58,7 @@ func AllowedFileTypes(types ...string) gin.HandlerFunc {
 			for _, fh := range files {
 				f, err := fh.Open()
 				if err != nil {
-					apperror.Abort(c, apperror.ErrBadRequest.WithDetail("Failed to open uploaded file"))
+					abortWithAppError(c, apperror.ErrBadRequest.WithDetail("Failed to open uploaded file"))
 					return
 				}
 
@@ -67,13 +67,13 @@ func AllowedFileTypes(types ...string) gin.HandlerFunc {
 				n, err := f.Read(buf)
 				f.Close()
 				if err != nil && err != io.EOF {
-					apperror.Abort(c, apperror.ErrBadRequest.WithDetail("Failed to read uploaded file"))
+					abortWithAppError(c, apperror.ErrBadRequest.WithDetail("Failed to read uploaded file"))
 					return
 				}
 
 				detected := http.DetectContentType(buf[:n])
 				if _, ok := allowed[detected]; !ok {
-					apperror.Abort(c, errUnsupportedFileType.WithDetail("Detected type: "+detected))
+					abortWithAppError(c, errUnsupportedFileType.WithDetail("Detected type: "+detected))
 					return
 				}
 			}
@@ -91,7 +91,7 @@ func RequireFile(fieldName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, header, err := c.Request.FormFile(fieldName)
 		if err != nil || header == nil {
-			apperror.Abort(c, errFileMissing.WithDetail("Missing file field: "+fieldName))
+			abortWithAppError(c, errFileMissing.WithDetail("Missing file field: "+fieldName))
 			return
 		}
 

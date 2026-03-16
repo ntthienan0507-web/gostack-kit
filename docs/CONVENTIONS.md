@@ -118,18 +118,23 @@ ctx.JSON(404, gin.H{"error": "not found"})
 ### Controller error handling
 
 ```go
-// ✅ Controller uses apperror.HandleError — automatically maps error → HTTP response
+// ✅ Controller uses response.HandleError — automatically maps error → AppError → JSON
 user, err := c.service.GetByID(ctx.Request.Context(), id)
 if err != nil {
-    apperror.HandleError(ctx, err)
+    response.HandleError(ctx, err)
     return
 }
+
+// ✅ Known error — use response.Error directly
+response.Error(ctx, apperror.ErrInvalidParams)
 
 // ❌ Controller manually switches on error type
 if errors.Is(err, pgx.ErrNoRows) {  // ← leaking DB concern into controller
     ctx.JSON(404, ...)
 }
 ```
+
+> `apperror` is transport-agnostic (no gin). HTTP uses `response.Error/Abort/HandleError`, gRPC uses `grpcserver.StatusFromError`.
 
 ---
 
@@ -147,6 +152,7 @@ modules/order/
 ├── repository_gorm.go ← implementation
 ├── service.go         ← business logic
 ├── controller.go      ← HTTP handlers
+├── grpc_handler.go    ← gRPC service implementation (optional)
 ├── routes.go          ← route registration
 └── *_test.go          ← tests
 ```
@@ -268,14 +274,14 @@ func (c *Controller) Create(ctx *gin.Context) {
     // 1. Parse + validate request
     var req CreateRequest
     if err := ctx.ShouldBindJSON(&req); err != nil {
-        apperror.Respond(ctx, apperror.New(400, "common.validation_failed", err.Error()))
+        response.Error(ctx, apperror.New(400, "common.validation_failed", err.Error()))
         return
     }
 
     // 2. Call service
     result, err := c.service.Create(ctx.Request.Context(), req)
     if err != nil {
-        apperror.HandleError(ctx, err)
+        response.HandleError(ctx, err)
         return
     }
 

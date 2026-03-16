@@ -17,14 +17,14 @@ func Auth(provider auth.Provider) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		header := ctx.GetHeader("Authorization")
 		if header == "" || !strings.HasPrefix(header, "Bearer ") {
-			apperror.Abort(ctx, apperror.ErrTokenMissing)
+			abortWithAppError(ctx, apperror.ErrTokenMissing)
 			return
 		}
 
 		token := strings.TrimPrefix(header, "Bearer ")
 		claims, err := provider.ValidateToken(ctx.Request.Context(), token)
 		if err != nil {
-			apperror.Abort(ctx, apperror.ErrTokenInvalid)
+			abortWithAppError(ctx, apperror.ErrTokenInvalid)
 			return
 		}
 
@@ -53,12 +53,12 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		claims, ok := GetClaims(ctx)
 		if !ok {
-			apperror.Abort(ctx, apperror.ErrUnauthorized)
+			abortWithAppError(ctx, apperror.ErrUnauthorized)
 			return
 		}
 
 		if _, allowed := roleSet[claims.Role]; !allowed {
-			apperror.Abort(ctx, apperror.ErrForbidden)
+			abortWithAppError(ctx, apperror.ErrForbidden)
 			return
 		}
 

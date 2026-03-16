@@ -73,7 +73,7 @@ func RedisRateLimit(rdb *redis.Client, limit int, window time.Duration, keyFunc 
 			}
 			ctx.Header("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 			ctx.Header("Retry-After", fmt.Sprintf("%.0f", retryAfter))
-			apperror.Abort(ctx, apperror.ErrRateLimited)
+			abortWithAppError(ctx, apperror.ErrRateLimited)
 			return
 		}
 
